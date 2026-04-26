@@ -1,0 +1,10 @@
+{
+  "name": "Remix: Aura Assistant",
+  "description": "Aura Assistant is a high-performance voice companion featuring Advanced System Integrations for handicapped and blind users. It enables deep-link device commands, hands-free calling/messaging, and proactive voice interaction for robust device automation.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}
