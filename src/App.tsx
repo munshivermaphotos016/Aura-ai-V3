@@ -1494,8 +1494,9 @@ webView.addJavascriptInterface(new WebAppInterface(), "Android");`}
                           setTimeout(() => handleAssistantTrigger("native"), 300);
                         }}
                         className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-md text-xs font-medium flex items-center gap-2"
+                        title="Simulates a native Android OS level assistant call"
                       >
-                        <span>🔘 Simulate Side Button</span>
+                        <span>🔘 OS Assistant (Bridge)</span>
                       </button>
                     </div>
                   </div>
