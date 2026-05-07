@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AssistantSettings, defaultSettings, Message } from "./types";
 import { AssistantUI } from "./components/AssistantUI";
+import { UsageStats } from "./components/UsageStats";
 import { Settings } from "./components/Settings";
 import { BrowserModule } from "./components/BrowserModule";
 import { TaskTracker, TaskTrackerProps } from "./components/TaskTracker";
@@ -71,15 +72,16 @@ export default function App() {
     }
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [pendingContactSearch, setPendingContactSearch] = useState<{
     type: string;
     name: string;
   } | null>(null);
   const [pendingAction, setPendingAction] = useState<{
     type: "call" | "message";
-    number: string;
-    name: string;
-    step: "confirm" | "draft" | "confirm_send";
+    number?: string;
+    name?: string;
+    step: "confirm" | "draft" | "confirm_send" | "wait_number";
     content?: string;
   } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -439,7 +441,13 @@ export default function App() {
               timestamp: Date.now(),
             },
           ]);
-          speak(cancelMsg, settings.voiceId);
+          speak(cancelMsg, settings.voiceId, () => {
+             startListeningRef.current();
+          });
+          setPendingAction({
+            type: type as "call" | "message",
+            step: "wait_number",
+          });
         } else {
           const alertMsg =
             err.name === "SecurityError"
@@ -455,7 +463,17 @@ export default function App() {
               timestamp: Date.now(),
             },
           ]);
-          speak(alertMsg, settings.voiceId);
+          if (err.name !== "SecurityError") {
+            speak(alertMsg, settings.voiceId, () => {
+              startListeningRef.current();
+            });
+            setPendingAction({
+              type: type as "call" | "message",
+              step: "wait_number",
+            });
+          } else {
+            speak(alertMsg, settings.voiceId);
+          }
         }
         return false;
       }
@@ -762,7 +780,7 @@ export default function App() {
               timestamp: Date.now(),
             },
           ]);
-          const rawConfirmMsg = `Got it. I've drafted "${text}" for ${pendingAction.name}. Shall I send it now? [AWAITING_REPLY]`;
+          const rawConfirmMsg = `Got it. I've drafted "${text}" for ${pendingAction.name || 'this contact'}. Shall I send it now? [AWAITING_REPLY]`;
           const cleanConfirmMsg = rawConfirmMsg
             .replace("[AWAITING_REPLY]", "")
             .trim();
@@ -777,13 +795,70 @@ export default function App() {
             },
           ]);
           speak(cleanConfirmMsg, settings.voiceId, () => {
-            startListeningRef.current(); // Always resume if waiting for reply
+             startListeningRef.current(); // Always resume if waiting for reply
           });
           setPendingAction({
             ...pendingAction,
             step: "confirm_send",
             content: text,
           });
+          return;
+        } else if (pendingAction.step === "wait_number") {
+          // Extract the number
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "user",
+              content: text,
+              timestamp: Date.now(),
+            },
+          ]);
+          const numMatch = text.match(/(\\+?[\\d\\s-]{7,15})/);
+          if (numMatch) {
+            const number = numMatch[0].replace(/\\s/g, '');
+            const rawConfirmMsg = `Got it. Shall I proceed with the ${pendingAction.type} to ${number}? [AWAITING_REPLY]`;
+            const cleanConfirmMsg = rawConfirmMsg.replace("[AWAITING_REPLY]", "").trim();
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: cleanConfirmMsg,
+                timestamp: Date.now(),
+              },
+            ]);
+            speak(cleanConfirmMsg, settings.voiceId, () => {
+              startListeningRef.current();
+            });
+            setPendingAction({
+              ...pendingAction,
+              number,
+              name: number,
+              step: pendingAction.type === "message" ? "draft" : "confirm",
+            });
+          } else {
+            const numCancelMatch = text.match(/\\b(no|cancel|stop|forget)\\b/i);
+            if (numCancelMatch) {
+               const cancelMsg = "Alright, I've cancelled that.";
+               setMessages((prev) => [
+                  ...prev,
+                  { id: crypto.randomUUID(), role: "assistant", content: cancelMsg, timestamp: Date.now() },
+               ]);
+               speak(cancelMsg, settings.voiceId);
+               setPendingAction(null);
+            } else {
+               const retryMsg = "I couldn't detect a valid phone number. Please try saying the number again, or say cancel. [AWAITING_REPLY]";
+               const cleanRetryMsg = retryMsg.replace("[AWAITING_REPLY]", "").trim();
+               setMessages((prev) => [
+                  ...prev,
+                  { id: crypto.randomUUID(), role: "assistant", content: cleanRetryMsg, timestamp: Date.now() },
+               ]);
+               speak(cleanRetryMsg, settings.voiceId, () => {
+                  startListeningRef.current();
+               });
+            }
+          }
           return;
         }
       }
@@ -857,23 +932,25 @@ export default function App() {
         const cleanResponse = response.replace("[AWAITING_REPLY]", "").trim();
 
         if (localAction.searchPhone) {
+          const rawSearchMsg = settings.advancedIntegrations
+               ? `Initiating system search protocols for ${localAction.payload.unknownName}...`
+               : `Let me check your contacts for ${localAction.payload.unknownName}...`;
+          
           const assistantMsg: Message = {
             id: crypto.randomUUID(),
             role: "assistant",
-            content: cleanResponse,
+            content: rawSearchMsg,
             timestamp: Date.now(),
           };
           setMessages((prev) => [...prev, assistantMsg]);
           setIsProcessing(false);
           if (isVoice) {
-            speak(cleanResponse, settings.voiceId, () => {
-              if (isWaiting) startListeningRef.current();
+            speak(rawSearchMsg, settings.voiceId, () => {
+              handleSystemContactSearch(localAction.type as "call" | "message", localAction.payload.unknownName);
             });
+          } else {
+            handleSystemContactSearch(localAction.type as "call" | "message", localAction.payload.unknownName);
           }
-          setPendingContactSearch({
-            type: localAction.type,
-            name: localAction.payload.unknownName,
-          });
           return;
         }
 
@@ -1343,6 +1420,8 @@ export default function App() {
             speak(text, vId);
           }}
         />
+      ) : showStats ? (
+        <UsageStats messages={messages} onClose={() => setShowStats(false)} />
       ) : (
         <div className="flex flex-col h-full w-full overflow-hidden relative">
           <AnimatePresence>
@@ -1375,6 +1454,21 @@ export default function App() {
                     queuedSystemAction();
                     setQueuedSystemAction(null);
                   }
+                  
+                  // Speak completion
+                  speak("Task completed.");
+                  
+                  // Add a completion message if we were tracking an active task
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: crypto.randomUUID(),
+                      role: "system",
+                      content: "✅ Task successfully completed.",
+                      timestamp: Date.now(),
+                    },
+                  ]);
+
                   setTimeout(() => {
                     setActiveTaskTracker(null);
                   }, 2000);
@@ -1559,6 +1653,7 @@ webView.addJavascriptInterface(new WebAppInterface(), "Android");`}
               settings={settings}
               onOpenSettings={() => setShowSettings(true)}
               onOpenHistory={() => setIsHistoryPanelOpen(true)}
+              onOpenStats={() => setShowStats(true)}
               isListening={isListening}
               isProcessing={isProcessing}
               isSpeaking={isSpeaking}

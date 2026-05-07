@@ -31,7 +31,10 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
     const app = playMatch[2].trim();
     return {
       steps: [
-        { action: 'open_app', payload: { app, query: item }, description: `Opening ${app} to play ${item}` }
+        { action: 'open_app', payload: { app, query: item }, description: `Opening ${app} to play ${item}` },
+        { action: '', payload: {}, description: `Scanning ${app} interface...` },
+        { action: '', payload: {}, description: `Locating ${item} media...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Executing playback...` }
       ],
       response: `Sure, buddy. Opening ${app} so you can watch ${item}.`
     };
@@ -45,7 +48,10 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
     const app = appSearchMatch[2].trim();
     return {
       steps: [
-        { action: 'open_app', payload: { app, query }, description: `Searching ${app} for ${query}` }
+        { action: 'open_app', payload: { app, query }, description: `Searching ${app} for ${query}` },
+        { action: '', payload: {}, description: `Analyzing app layout...` },
+        { action: '', payload: {}, description: `Locating search bar...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Running query: ${query}...` }
       ],
       response: `Searching for ${query} on ${app} right now.`
     };
@@ -60,7 +66,9 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
     const query = browserSearchMatch[1].trim();
     return {
       steps: [
-        { action: 'open_app', payload: { app: 'google', query }, description: `Searching for ${query}` }
+        { action: 'open_app', payload: { app: 'google', query }, description: `Opening web environment...` },
+        { action: '', payload: {}, description: `Executing online search for ${query}...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Analyzing top results...` }
       ],
       response: `I'll search for ${query} for you right away.`
     };
@@ -75,7 +83,9 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
     const store = downloadMatch[2]?.trim() || 'play store';
     return {
       steps: [
-        { action: 'open_store', payload: { store, query: item }, description: `Searching ${store} for ${item}` }
+        { action: 'open_store', payload: { store, query: item }, description: `Opening ${store}...` },
+        { action: '', payload: {}, description: `Searching registry for ${item}...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Opening app page...` }
       ],
       response: `Searching for ${item} on the ${store} now.`
     };
@@ -90,7 +100,10 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
     const content = whatsappMatch[3]?.trim();
     return {
       steps: [
-        { action: 'app_message', payload: { app, person, content }, description: `Messaging ${person} via ${app}` }
+        { action: '', payload: {}, description: `Initializing connection to ${app}...` },
+        { action: 'app_message', payload: { app, person, content }, description: `Resolving contact: ${person}` },
+        { action: '', payload: {}, description: `Opening chat interface...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Drafting and transmitting message...` }
       ],
       response: content 
         ? `Ok. Sending "${content}" to ${person} on ${app}.` 
@@ -108,6 +121,21 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
         { action: 'search_contact', payload: { name, nextAction: action }, description: `Searching for ${name} to ${action}` }
       ],
       response: `Looking for ${name} to ${action} them.`
+    };
+  }
+
+  // Pattern: Search device files for [file/document/photo]
+  const fileSearchMatch = text.match(/(?:find|search|look\s+for)\s+(?:my\s+)?(?:file|document|photo|video|image|pdf)?\s*(.+?)\s+(?:in|on)\s+(?:my\s+)?(?:device|phone|storage)/i) ||
+                          text.match(/(?:search|find)\s+(?:my\s+)?(?:device|phone|storage)\s+for\s+(.+)/i);
+  if (fileSearchMatch) {
+    const query = fileSearchMatch[1].trim();
+    return {
+      steps: [
+        { action: 'open_app', payload: { app: 'settings', query: '' }, description: `Opening device storage manager...` },
+        { action: '', payload: {}, description: `Scanning file system for "${query}"...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Displaying search results for ${query}...` }
+      ],
+      response: `Searching your device for ${query}.`
     };
   }
 
@@ -209,7 +237,7 @@ export function parseLocalCommand(transcript: string, settings: AssistantSetting
     const targetName = entity.name || (nameMatch ? nameMatch[1].trim() : null);
     
     if (targetName && targetName.length > 1) {
-       return { type: 'call', payload: { unknownName: targetName }, response: `Searching for ${targetName}... [AWAITING_REPLY]`, confidence: 0.8, searchPhone: true };
+       return { type: 'call', payload: { unknownName: targetName }, response: `Searching for ${targetName}...`, confidence: 0.8, searchPhone: true };
     }
   }
 

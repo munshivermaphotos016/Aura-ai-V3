@@ -426,11 +426,27 @@ export function Settings({
 
         {/* Android Native Mode & Permissions */}
         <section className="space-y-4">
-          <h3 className="text-xl font-medium text-purple-400 border-b border-slate-700 pb-2 flex items-center justify-between">
-            <span className="flex items-center gap-2">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-medium text-purple-400 flex items-center gap-2">
               <Shield size={20} /> System Permissions
-            </span>
-          </h3>
+            </h3>
+            <button
+              type="button"
+              onClick={async () => {
+                const perms = ["audio", "contacts", "call", "sms", "apps", "accessibility", "overlay"];
+                const newPerms = { ...formData.permissions };
+                for (const p of perms) {
+                  if (!newPerms[p]) {
+                    newPerms[p] = await requestNativePermission(p);
+                  }
+                }
+                setFormData({ ...formData, permissions: newPerms });
+              }}
+              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Request All Permissions
+            </button>
+          </div>
 
           <div className="p-4 rounded-xl border border-purple-500/30 bg-purple-500/5 space-y-4">
             <div className="flex items-center gap-4">
@@ -462,11 +478,13 @@ export function Settings({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {Object.entries(
               formData.permissions || {
+                audio: false,
                 contacts: false,
                 call: false,
                 sms: false,
                 apps: false,
                 accessibility: false,
+                overlay: false,
               },
             ).map(([perm, val]) => (
               <div

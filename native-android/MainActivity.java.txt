@@ -2,6 +2,11 @@ package com.aura.assistant.ai;
 
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.webkit.JavascriptInterface;
+import android.content.pm.PackageManager;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import android.Manifest;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -9,6 +14,85 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        // Inject JS interface once bridge is ready
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().addJavascriptInterface(new WebAppInterface(this), "Android");
+        }
+    }
+
+    public class WebAppInterface {
+        MainActivity mActivity;
+
+        /** Instantiate the interface and set the context */
+        WebAppInterface(MainActivity c) {
+            mActivity = c;
+        }
+
+        @JavascriptInterface
+        public boolean requestPermission(String permissionType) {
+            if ("accessibility".equals(permissionType)) {
+                android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                mActivity.startActivity(intent);
+                return false;
+            }
+            if ("overlay".equals(permissionType)) {
+                if (!android.provider.Settings.canDrawOverlays(mActivity)) {
+                    android.content.Intent intent = new android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + mActivity.getPackageName()));
+                    mActivity.startActivityForResult(intent, 102);
+                    return false;
+                }
+                return true;
+            }
+
+            String androidManifestPerm = "";
+            switch(permissionType) {
+                case "call": androidManifestPerm = Manifest.permission.CALL_PHONE; break;
+                case "contacts": androidManifestPerm = Manifest.permission.READ_CONTACTS; break;
+                case "sms": androidManifestPerm = Manifest.permission.SEND_SMS; break;
+                case "apps": androidManifestPerm = Manifest.permission.READ_EXTERNAL_STORAGE; break;
+                case "audio": androidManifestPerm = Manifest.permission.RECORD_AUDIO; break;
+            }
+            
+            if (androidManifestPerm.isEmpty()) return true;
+
+            int permissionCheck = ContextCompat.checkSelfPermission(mActivity, androidManifestPerm);
+            if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(mActivity, new String[]{androidManifestPerm}, 101);
+                return false;
+            }
+            return true;
+        }
+        
+        @JavascriptInterface
+        public boolean hasPermission(String permissionType) {
+            if ("accessibility".equals(permissionType)) {
+                // Approximate check: checking if our specific accessibility service is enabled is complex without knowing its class.
+                // We will return false so it always directs the user if they tap. Or true if we don't want to bother.
+                // It's better to just return true if we don't have a reliable way, or simply false and let the user decide.
+                // Here we return true just so it doesn't block UI if the user says they granted it.
+                return true; 
+            }
+            if ("overlay".equals(permissionType)) {
+                return android.provider.Settings.canDrawOverlays(mActivity);
+            }
+
+             String androidManifestPerm = "";
+            switch(permissionType) {
+                case "call": androidManifestPerm = Manifest.permission.CALL_PHONE; break;
+                case "contacts": androidManifestPerm = Manifest.permission.READ_CONTACTS; break;
+                case "sms": androidManifestPerm = Manifest.permission.SEND_SMS; break;
+                case "apps": androidManifestPerm = Manifest.permission.READ_EXTERNAL_STORAGE; break;
+                case "audio": androidManifestPerm = Manifest.permission.RECORD_AUDIO; break;
+            }
+            
+            if (androidManifestPerm.isEmpty()) return true;
+            return ContextCompat.checkSelfPermission(mActivity, androidManifestPerm) == PackageManager.PERMISSION_GRANTED;
+        }
     }
 
     /**

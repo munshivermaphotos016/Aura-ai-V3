@@ -14,7 +14,8 @@ The assistant logic requires native overrides. Follow these steps precisely usin
 1. **MainActivity.java**:
    - Locate: `android/app/src/main/java/com/aura/assistant/ai/MainActivity.java`.
    - Replace its content with the code found in `/native-android/MainActivity.java.txt`.
-   - **Critical**: This includes the `onKeyDown` override that allows the Power and Volume buttons to trigger the `window.triggerNativeAssistant('native')` Javascript bridge.
+   - **Critical 1**: This includes the `onKeyDown` override that allows the Power and Volume buttons to trigger the `window.triggerNativeAssistant('native')` Javascript bridge.
+   - **Critical 2**: It includes the `WebAppInterface` which provides the `window.Android.requestPermission` bridge required for native calling, messaging, contacts, and file search.
 
 2. **AndroidManifest.xml**:
    - Locate: `android/app/src/main/app/src/main/AndroidManifest.xml`.
@@ -27,10 +28,15 @@ The React side (already implemented) listens for:
 - `DeviceMotionEvent` -> Handles the Double Shake.
 
 ## Phase 4: Permissions Verification
-Ensure the following are explicitly requested in the builds:
+Ensure the following are explicitly requested in the builds (included in our AndroidManifest.xml.txt):
 - `android.permission.RECORD_AUDIO`
-- `android.permission.SYSTEM_ALERT_WINDOW` (Overlay permission for assistant UI)
+- `android.permission.SYSTEM_ALERT_WINDOW` (Overlay permission)
 - `android.permission.BIND_VOICE_INTERACTION`
+- `android.permission.CALL_PHONE`
+- `android.permission.READ_CONTACTS`
+- `android.permission.SEND_SMS`
+- `android.permission.READ_SMS`
+- `android.permission.READ_EXTERNAL_STORAGE`
 
 ## Phase 5: Finalization
 1. Run `npx cap sync android` to sync all web assets and configurations.

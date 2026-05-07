@@ -12,6 +12,9 @@ import {
   Smartphone,
   History,
   Sparkles,
+  Activity,
+  Copy,
+  Check,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { AssistantSettings, Message } from "../types";
@@ -29,6 +32,7 @@ interface AssistantUIProps {
   onStopSpeaking: () => void;
   onSendText?: (text: string) => void;
   onOpenAssistantSetup?: () => void;
+  onOpenStats?: () => void;
 }
 
 const SUGGESTED_ACTIONS = [
@@ -37,6 +41,55 @@ const SUGGESTED_ACTIONS = [
   { icon: <Globe className="text-purple-400" size={18} />, label: "Search news", text: "What's the latest news?" },
   { icon: <Sparkles className="text-amber-400" size={18} />, label: "Tell a joke", text: "Tell me a joke" },
 ];
+
+function MessageBubble({ msg }: { msg: Message }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(msg.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      className={`group max-w-[90%] p-4 rounded-3xl text-[17px] shadow-lg flex flex-col gap-2 relative ${
+        msg.role === "user"
+          ? "bg-blue-600 self-end rounded-tr-none text-white shadow-blue-900/20"
+          : "bg-slate-800 self-start rounded-tl-none border border-slate-700 text-slate-50 shadow-black/40"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          {msg.role === "assistant" && (
+            <div className="flex items-center gap-2 mb-2 text-blue-400 text-[11px] font-bold uppercase tracking-[0.2em] opacity-80">
+              <Sparkles size={12} aria-hidden="true" />
+              <span>Aura</span>
+            </div>
+          )}
+          <p className="whitespace-pre-wrap leading-relaxed">
+            {msg.content}
+          </p>
+        </div>
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <button
+            onClick={handleCopy}
+            className={`p-2 rounded-xl transition-all active:scale-95 ${
+              msg.role === "user" 
+                ? "hover:bg-white/20 text-white/80 hover:text-white"
+                : "hover:bg-slate-700/80 text-slate-400 hover:text-white"
+            }`}
+            title="Copy message"
+          >
+            {copied ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 export function AssistantUI({
   settings,
@@ -50,6 +103,7 @@ export function AssistantUI({
   onStopSpeaking,
   onSendText,
   onOpenAssistantSetup,
+  onOpenStats,
 }: AssistantUIProps) {
   const currentMsgRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -83,6 +137,14 @@ export function AssistantUI({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={onOpenStats}
+            className="p-2.5 rounded-xl bg-slate-800/50 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-all border border-slate-700/50"
+            title="Usage Statistics"
+            aria-label="Open Usage Statistics"
+          >
+            <Activity size={20} />
+          </button>
           <button
             onClick={onOpenHistory}
             className="p-2.5 rounded-xl bg-slate-800/50 text-slate-400 hover:text-white hover:bg-slate-800 transition-all border border-slate-700/50"
@@ -153,26 +215,7 @@ export function AssistantUI({
         ) : (
           <AnimatePresence>
             {messages.map((msg) => (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                key={msg.id}
-                className={`max-w-[90%] p-4 rounded-3xl text-[17px] shadow-lg ${
-                  msg.role === "user"
-                    ? "bg-blue-600 self-end rounded-tr-none text-white shadow-blue-900/20"
-                    : "bg-slate-800 self-start rounded-tl-none border border-slate-700 text-slate-50 shadow-black/40"
-                }`}
-              >
-                {msg.role === "assistant" && (
-                  <div className="flex items-center gap-2 mb-2 text-blue-400 text-[11px] font-bold uppercase tracking-[0.2em] opacity-80">
-                    <Sparkles size={12} aria-hidden="true" />
-                    <span>Aura</span>
-                  </div>
-                )}
-                <p className="whitespace-pre-wrap leading-relaxed">
-                  {msg.content}
-                </p>
-              </motion.div>
+              <MessageBubble key={msg.id} msg={msg} />
             ))}
             {isProcessing && (
               <motion.div

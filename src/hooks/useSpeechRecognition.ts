@@ -105,7 +105,9 @@ export function useSpeechRecognition({
 
       recognitionRef.current.onerror = (event: any) => {
         if (event.error !== 'no-speech') {
-          console.error("Speech recognition error", event.error);
+          if (event.error !== 'not-allowed') {
+            console.error("Speech recognition error", event.error);
+          }
           setError(event.error);
           errorRef.current = event.error;
         } else {
