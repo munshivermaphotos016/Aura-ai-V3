@@ -3,6 +3,7 @@ import cors from "cors";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import ytSearch from "youtube-search-api";
+import { Readable } from "stream";
 
 async function startServer() {
   const app = express();
@@ -15,7 +16,7 @@ async function startServer() {
   // Proxy endpoint to bypass X-Frame-Options and CORS
   app.get("/api/proxy", async (req, res) => {
     const targetUrl = req.query.url as string;
-    if (!targetUrl) return res.status(400).send("No URL provided");
+    if (!targetUrl || targetUrl === "undefined" || targetUrl === "null") return res.status(400).send("No valid URL provided");
 
     try {
       const response = await fetch(targetUrl, {
@@ -29,8 +30,6 @@ async function startServer() {
       });
 
       const contentType = response.headers.get("content-type") || "";
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
 
       // We only strip headers that block embedding
       const omitHeaders = [
@@ -39,6 +38,7 @@ async function startServer() {
         "strict-transport-security",
         "transfer-encoding",
         "content-encoding",
+        "content-length",
       ];
 
       response.headers.forEach((value, key) => {
@@ -47,18 +47,24 @@ async function startServer() {
         }
       });
 
-      // If it's HTML, we MUST inject a <base> tag so relative links for CSS and JS work!
+      res.status(response.status);
+
+      // If it's HTML, inject base tag and interceptors
       if (contentType.includes("text/html")) {
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
         let html = buffer.toString("utf-8");
-        const parsedUrl = new URL(targetUrl);
+        const finalUrl = response.url || targetUrl; // Use final URL after redirects
+        const parsedUrl = new URL(finalUrl);
         const baseTag = `<base href="${parsedUrl.protocol}//${parsedUrl.host}/">`;
 
-        // Inject script to hijack clicks and form submissions
+        // Inject script to hijack clicks, forms, fetch, and XHR
         const hijackScript = `
           <script>
+            // Hijack navigation
             document.addEventListener('click', function(e) {
               const a = e.target.closest('a');
-              if (a && a.href) {
+              if (a && a.href && !a.href.startsWith('javascript:')) {
                 e.preventDefault();
                 window.parent.postMessage({ type: 'AURA_NAVIGATE', url: a.href }, '*');
               }
@@ -76,17 +82,53 @@ async function startServer() {
               }
               window.parent.postMessage({ type: 'AURA_NAVIGATE', url: url }, '*');
             });
+
+            // Intercept Fetch API
+            const originalFetch = window.fetch;
+            window.fetch = async function() {
+              let [resource, config] = arguments;
+              let absoluteUrl = '';
+              if (typeof resource === 'string') {
+                absoluteUrl = new URL(resource, document.baseURI).href;
+              } else if (resource instanceof Request) {
+                absoluteUrl = new URL(resource.url, document.baseURI).href;
+              }
+              if (absoluteUrl && absoluteUrl.startsWith('http')) {
+                const proxiedUrl = window.location.origin + '/api/proxy?url=' + encodeURIComponent(absoluteUrl);
+                if (typeof resource === 'string') resource = proxiedUrl;
+                else resource = new Request(proxiedUrl, resource);
+              }
+              return originalFetch.apply(this, [resource, config]);
+            };
+
+            // Intercept XMLHttpRequest
+            const originalXhrOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+              let absoluteUrl = '';
+              if (typeof url === 'string') {
+                 absoluteUrl = new URL(url, document.baseURI).href;
+              }
+              if (absoluteUrl && absoluteUrl.startsWith('http')) {
+                url = window.location.origin + '/api/proxy?url=' + encodeURIComponent(absoluteUrl);
+              }
+              return originalXhrOpen.apply(this, [method, url, ...Array.prototype.slice.call(arguments, 2)]);
+            };
           </script>
         `;
 
         if (html.includes("<head>")) {
-          html = html.replace("<head>", `<head>${baseTag}${hijackScript}`);
+          html = html.replace("<head>", `<head>\n${baseTag}\n${hijackScript}`);
         } else {
           html = baseTag + hijackScript + html;
         }
         res.send(html);
       } else {
-        res.send(buffer);
+        if (response.body) {
+          Readable.fromWeb(response.body as any).pipe(res);
+        } else {
+          const arrayBuffer = await response.arrayBuffer();
+          res.send(Buffer.from(arrayBuffer));
+        }
       }
     } catch (e: any) {
       console.error(e);
@@ -140,13 +182,36 @@ async function startServer() {
   });
 
   // Proxy for Custom API providers (OpenAI compatible)
-  app.post("/api/proxy", async (req, res) => {
+  app.post("/api/llm-proxy", async (req, res) => {
     try {
       const { url, headers, body } = req.body;
       const response = await fetch(url, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
+      });
+
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        res.status(response.status).json(data);
+      } else {
+        const text = await response.text();
+        res.status(response.status).send(text);
+      }
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: { message: e.message } });
+    }
+  });
+
+  // Proxy for Fetching LLM Models
+  app.post("/api/llm-models-proxy", async (req, res) => {
+    try {
+      const { url, headers } = req.body;
+      const response = await fetch(url, {
+        method: "GET",
+        headers,
       });
 
       const contentType = response.headers.get("content-type") || "";

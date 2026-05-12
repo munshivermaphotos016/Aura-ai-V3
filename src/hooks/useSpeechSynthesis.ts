@@ -115,7 +115,7 @@ export function useSpeechSynthesis(settings: AssistantSettings) {
              body: JSON.stringify(payload)
            });
         } else {
-           response = await fetch('/api/proxy', {
+           response = await fetch('/api/llm-proxy', {
              method: 'POST',
              headers: { 'Content-Type': 'application/json' },
              body: JSON.stringify({

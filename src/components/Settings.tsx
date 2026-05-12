@@ -46,6 +46,19 @@ export function Settings({
   const [editingContact, setEditingContact] = useState<Partial<Contact> | null>(
     null,
   );
+  
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [modelFetchError, setModelFetchError] = useState("");
+  const [modelFetchSuccess, setModelFetchSuccess] = useState("");
+
+  const presetProviders = [
+    { name: "Groq", baseUrl: "https://api.groq.com/openai/v1" },
+    { name: "Together AI", baseUrl: "https://api.together.xyz/v1" },
+    { name: "OpenAI", baseUrl: "https://api.openai.com/v1" },
+    { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
+    { name: "Cloudflare", baseUrl: "https://api.cloudflare.com/client/v4/accounts/<YOUR_ACCOUNT_ID>/ai/v1" },
+  ];
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -90,6 +103,61 @@ export function Settings({
       apiKey: "",
       modelName: "",
     });
+    setAvailableModels([]);
+    setModelFetchError("");
+    setModelFetchSuccess("");
+  };
+
+  const fetchModelsList = async () => {
+    if (!editingProvider?.baseUrl || !editingProvider?.apiKey) {
+      setModelFetchError("Base URL and API Key are required.");
+      return;
+    }
+    
+    // Cloudflare requires a special URL format and doesn't easily support generic /models endpoint.
+    if (editingProvider.baseUrl.includes("cloudflare.com")) {
+      setModelFetchError("Auto-fetch not available for Cloudflare. Please enter model name manually (e.g. @cf/meta/llama-3-8b-instruct).");
+      return;
+    }
+
+    setIsFetchingModels(true);
+    setModelFetchError("");
+    setModelFetchSuccess("");
+    setAvailableModels([]);
+
+    try {
+      let url = editingProvider.baseUrl;
+      if (!url.endsWith("/models")) {
+        url = url.endsWith("/") ? url + "models" : url + "/models";
+      }
+
+      const response = await fetch("/api/llm-models-proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          headers: {
+            Authorization: "Bearer " + editingProvider.apiKey
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("HTTP " + response.status);
+      }
+
+      const data = await response.json();
+      if (data && data.data && Array.isArray(data.data)) {
+        setAvailableModels(data.data.map((m: any) => m.id));
+        setModelFetchSuccess("Found " + data.data.length + " models!");
+      } else {
+        throw new Error("Invalid format from provider");
+      }
+    } catch (error: any) {
+      setModelFetchError("Failed to fetch models: " + error.message);
+    } finally {
+      setIsFetchingModels(false);
+    }
   };
 
   const handleSaveProvider = () => {
@@ -907,7 +975,12 @@ export function Settings({
                     </td>
                     <td className="p-4 text-right space-x-2">
                       <button
-                        onClick={() => setEditingProvider(provider)}
+                        onClick={() => {
+                          setEditingProvider(provider);
+                          setAvailableModels([]);
+                          setModelFetchError("");
+                          setModelFetchSuccess("");
+                        }}
                         className="p-2 hover:bg-slate-700 rounded-lg text-blue-400"
                       >
                         <Edit2 size={18} />
@@ -941,6 +1014,23 @@ export function Settings({
                 </div>
 
                 <div className="space-y-4">
+                  {!editingProvider.id && (
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium">Quick Setup Presets</label>
+                      <div className="flex flex-wrap gap-2">
+                        {presetProviders.map((preset) => (
+                          <button
+                            key={preset.name}
+                            onClick={() => setEditingProvider((prev) => ({ ...prev, name: preset.name, baseUrl: preset.baseUrl }))}
+                            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-slate-300 transition-colors"
+                          >
+                            {preset.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-medium mb-1.5">
                       Display Name
@@ -992,22 +1082,52 @@ export function Settings({
                       }
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5">
-                      Model Name
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="llama3-8b-8192"
-                      value={editingProvider.modelName || ""}
-                      onChange={(e) =>
-                        setEditingProvider({
-                          ...editingProvider,
-                          modelName: e.target.value,
-                        })
-                      }
-                    />
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium mb-0">
+                        Model Name
+                      </label>
+                      <button
+                        onClick={fetchModelsList}
+                        disabled={isFetchingModels || !editingProvider.baseUrl || !editingProvider.apiKey}
+                        className="text-sm font-medium bg-indigo-600 hover:bg-indigo-500 px-3 py-1 rounded disabled:opacity-50 transition-colors"
+                      >
+                        {isFetchingModels ? "Fetching..." : "Fetch Models"}
+                      </button>
+                    </div>
+
+                    {availableModels.length > 0 ? (
+                      <select
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"
+                        value={editingProvider.modelName || ""}
+                        onChange={(e) =>
+                          setEditingProvider({
+                            ...editingProvider,
+                            modelName: e.target.value,
+                          })
+                        }
+                      >
+                        <option value="" disabled>Select a model...</option>
+                        {availableModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="llama3-8b-8192"
+                        value={editingProvider.modelName || ""}
+                        onChange={(e) =>
+                          setEditingProvider({
+                            ...editingProvider,
+                            modelName: e.target.value,
+                          })
+                        }
+                      />
+                    )}
+                    {modelFetchError && <p className="text-red-400 text-xs mt-1">{modelFetchError}</p>}
+                    {modelFetchSuccess && <p className="text-green-400 text-xs mt-1">{modelFetchSuccess}</p>}
                   </div>
                 </div>
 

@@ -14,11 +14,17 @@ import {
   Sparkles,
   Activity,
   Copy,
+  Search,
+  Edit2,
+  Trash2,
   Check,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { AssistantSettings, Message } from "../types";
 import { WaveformAnimation } from "./WaveformAnimation";
+import { useLongPress } from "./useLongPress";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface AssistantUIProps {
   settings: AssistantSettings;
@@ -33,6 +39,10 @@ interface AssistantUIProps {
   onSendText?: (text: string) => void;
   onOpenAssistantSetup?: () => void;
   onOpenStats?: () => void;
+  onEditMessage?: (id: string, newContent: string) => void;
+  onDeleteMessage?: (id: string) => void;
+  onSearchWeb?: (query: string) => void;
+  onLinkClick?: (url: string) => void;
 }
 
 const SUGGESTED_ACTIONS = [
@@ -42,17 +52,91 @@ const SUGGESTED_ACTIONS = [
   { icon: <Sparkles className="text-amber-400" size={18} />, label: "Tell a joke", text: "Tell me a joke" },
 ];
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({
+  msg,
+  onEdit,
+  onDelete,
+  onSearchWeb,
+  onLinkClick,
+}: {
+  msg: Message;
+  onEdit?: (id: string, newContent: string) => void;
+  onDelete?: (id: string) => void;
+  onSearchWeb?: (query: string) => void;
+  onLinkClick?: (url: string) => void;
+}) {
   const [copied, setCopied] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(msg.content);
+
+  const longPressProps = useLongPress(() => {
+    setShowOptions(true);
+  }, 500);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    const selectedText = window.getSelection()?.toString();
+    if (!selectedText) {
+      e.preventDefault();
+      setShowOptions(!showOptions);
+    }
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(msg.content);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => {
+      setCopied(false);
+      setShowOptions(false);
+    }, 2000);
   };
+
+  if (isEditing) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className={`max-w-[90%] p-4 rounded-3xl text-[17px] shadow-lg flex flex-col gap-3 ${
+          msg.role === "user"
+            ? "bg-blue-600 self-end rounded-tr-none text-white shadow-blue-900/20"
+            : "bg-slate-800 self-start rounded-tl-none border border-slate-700 text-slate-50 shadow-black/40"
+        }`}
+      >
+        <textarea
+          className="w-full bg-slate-900/50 border border-slate-700 rounded-xl p-3 text-sm text-white resize-none outline-none focus:ring-2 focus:ring-blue-500"
+          value={editContent}
+          onChange={(e) => setEditContent(e.target.value)}
+          rows={3}
+          autoFocus
+        />
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => {
+              setIsEditing(false);
+              setEditContent(msg.content);
+            }}
+            className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              onEdit?.(msg.id, editContent);
+              setIsEditing(false);
+            }}
+            className="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-400 rounded-lg transition-colors font-medium"
+          >
+            Save
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
+      {...longPressProps}
+      onContextMenu={handleContextMenu}
       initial={{ opacity: 0, scale: 0.95, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       className={`group max-w-[90%] p-4 rounded-3xl text-[17px] shadow-lg flex flex-col gap-2 relative ${
@@ -62,31 +146,102 @@ function MessageBubble({ msg }: { msg: Message }) {
       }`}
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="flex-1">
+        <div className="flex-1 overflow-hidden">
           {msg.role === "assistant" && (
-            <div className="flex items-center gap-2 mb-2 text-blue-400 text-[11px] font-bold uppercase tracking-[0.2em] opacity-80">
+            <div className="flex items-center gap-2 mb-2 text-blue-400 text-[11px] font-bold uppercase tracking-[0.2em] opacity-80 select-none">
               <Sparkles size={12} aria-hidden="true" />
               <span>Aura</span>
             </div>
           )}
-          <p className="whitespace-pre-wrap leading-relaxed">
-            {msg.content}
-          </p>
-        </div>
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button
-            onClick={handleCopy}
-            className={`p-2 rounded-xl transition-all active:scale-95 ${
-              msg.role === "user" 
-                ? "hover:bg-white/20 text-white/80 hover:text-white"
-                : "hover:bg-slate-700/80 text-slate-400 hover:text-white"
-            }`}
-            title="Copy message"
-          >
-            {copied ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
-          </button>
+          <div className="whitespace-pre-wrap leading-relaxed select-text cursor-text relative z-10 prose prose-invert prose-sm max-w-none">
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ node, ...props }) => {
+                  return (
+                    <a
+                      {...props}
+                      href={props.href}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (props.href) {
+                          onLinkClick?.(props.href);
+                        }
+                      }}
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    />
+                  );
+                }
+              }}
+            >
+              {msg.content}
+            </ReactMarkdown>
+          </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showOptions && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className={`absolute top-full mt-2 w-max max-w-[200px] bg-slate-900 border border-slate-700 shadow-xl rounded-xl z-50 flex flex-col items-stretch overflow-hidden ${
+              msg.role === "user" ? "right-0" : "left-0"
+            }`}
+          >
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-left hover:bg-slate-800 transition-colors"
+            >
+              {copied ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+              {copied ? "Copied" : "Copy Message"}
+            </button>
+            <button
+              onClick={() => {
+                const selectedText = window.getSelection()?.toString() || msg.content;
+                onSearchWeb?.(selectedText);
+                setShowOptions(false);
+              }}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-left hover:bg-slate-800 transition-colors"
+            >
+              <Search size={16} />
+              Search on Web
+            </button>
+            <button
+              onClick={() => {
+                setIsEditing(true);
+                setShowOptions(false);
+              }}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-left hover:bg-slate-800 transition-colors"
+            >
+              <Edit2 size={16} />
+              Edit
+            </button>
+            <button
+              onClick={() => {
+                onDelete?.(msg.id);
+                setShowOptions(false);
+              }}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-left hover:bg-slate-800 transition-colors text-red-400"
+            >
+              <Trash2 size={16} />
+              Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Dismiss overlay */}
+      {showOptions && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowOptions(false);
+          }} 
+        />
+      )}
     </motion.div>
   );
 }
@@ -104,6 +259,10 @@ export function AssistantUI({
   onSendText,
   onOpenAssistantSetup,
   onOpenStats,
+  onEditMessage,
+  onDeleteMessage,
+  onSearchWeb,
+  onLinkClick,
 }: AssistantUIProps) {
   const currentMsgRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -215,7 +374,14 @@ export function AssistantUI({
         ) : (
           <AnimatePresence>
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
+              <MessageBubble 
+                key={msg.id} 
+                msg={msg} 
+                onEdit={onEditMessage}
+                onDelete={onDeleteMessage}
+                onSearchWeb={onSearchWeb}
+                onLinkClick={onLinkClick}
+              />
             ))}
             {isProcessing && (
               <motion.div

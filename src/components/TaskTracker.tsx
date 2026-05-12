@@ -37,19 +37,21 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
     initialSteps.map((step) => ({ ...step, status: step.status || "pending" })),
   );
   const [isExecuting, setIsExecuting] = useState(false);
+  const isExecutingRef = React.useRef(false);
 
   // Web Audio Context for Beeps
   const playBeep = React.useCallback((type: "active" | "done" | "error") => {
     try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContext =
+        window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContext) return;
       const ctx = new AudioContext();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      
+
       osc.connect(gain);
       gain.connect(ctx.destination);
-      
+
       if (type === "active") {
         osc.type = "sine";
         osc.frequency.setValueAtTime(800, ctx.currentTime);
@@ -92,7 +94,7 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
     let isCancelled = false;
 
     const processSteps = async () => {
-      if (isExecuting) return;
+      if (isExecutingRef.current) return;
 
       const activeIdx = currentSteps.findIndex(
         (s) => s.status === "pending" || s.status === "active",
@@ -107,6 +109,7 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
         return;
       }
 
+      isExecutingRef.current = true;
       setIsExecuting(true);
       const step = currentSteps[activeIdx];
 
@@ -117,6 +120,7 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
           next[activeIdx] = { ...step, status: "active" };
           return next;
         });
+        isExecutingRef.current = false;
         setIsExecuting(false);
         return;
       }
@@ -129,23 +133,35 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
         } catch (err) {
           console.error("Step failed:", err);
           playBeep("error");
-          setCurrentSteps((prev) => {
-            const next = [...prev];
-            next[activeIdx] = { ...step, status: "error" };
-            return next;
-          });
+
+          if (!isCancelled) {
+            setCurrentSteps((prev) => {
+              const next = [...prev];
+              next[activeIdx] = { ...step, status: "error" };
+              return next;
+            });
+          }
+          isExecutingRef.current = false;
           setIsExecuting(false);
           return;
         }
 
-        if (isCancelled) return;
+        if (isCancelled) {
+          isExecutingRef.current = false;
+          setIsExecuting(false);
+          return;
+        }
 
         const delay = step.delayMs ?? 1500;
         if (delay > 0) {
           await new Promise((res) => setTimeout(res, delay));
         }
 
-        if (isCancelled) return;
+        if (isCancelled) {
+          isExecutingRef.current = false;
+          setIsExecuting(false);
+          return;
+        }
 
         playBeep("done");
         setCurrentSteps((prev) => {
@@ -153,6 +169,7 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
           next[activeIdx] = { ...step, status: "done" };
           return next;
         });
+        isExecutingRef.current = false;
         setIsExecuting(false);
       }
     };
@@ -162,10 +179,10 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [currentSteps, isExecuting]);
+  }, [currentSteps]);
 
-  // If it's a simple 1-step task, don't show the tracker per user request
-  if (!goal || currentSteps.length <= 1) return null;
+  // If there is no goal, don't show the tracker
+  if (!goal) return null;
 
   // Use the active step, or the first pending, or the last one if all done
   const activeStepItem =

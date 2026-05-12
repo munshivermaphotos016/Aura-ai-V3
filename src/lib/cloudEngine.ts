@@ -96,8 +96,13 @@ If the user asks you to perform an action but they haven't granted the necessary
       }
 
       let response: Response;
+      let modelName = config.modelName || "gpt-3.5-turbo";
+      if (cleanBaseUrl.includes("cloudflare.com") && !modelName.startsWith("@")) {
+        modelName = "@cf/meta/" + modelName;
+      }
+
       const payload = {
-        model: config.modelName || "gpt-3.5-turbo",
+        model: modelName,
         messages: formattedMessages,
         max_tokens: 1000,
         temperature: 0.7,
@@ -113,7 +118,7 @@ If the user asks you to perform an action but they haven't granted the necessary
           body: JSON.stringify(payload),
         });
       } else {
-        response = await fetch("/api/proxy", {
+        response = await fetch("/api/llm-proxy", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -204,7 +209,7 @@ If the user asks you to perform an action but they haven't granted the necessary
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview", // High intelligence for general tasks
+        model: "gemini-3.1-pro-preview", // Uncensored highest intelligence
         contents: formattedContents,
         config: {
           systemInstruction:
@@ -243,14 +248,20 @@ If the user asks you to perform an action but they haven't granted the necessary
       return response.text;
     }
   } catch (err: any) {
-    console.error("Cloud engine error:", err);
-    const errString = (err.message || "") + " " + JSON.stringify(err);
+    console.error("Cloud engine error:\n" + JSON.stringify(err));
+    const errString =
+      (err.message || "") +
+      " " +
+      (err.status || "") +
+      " " +
+      JSON.stringify(err);
+    
     if (
       errString.includes("429") ||
       errString.includes("quota") ||
       errString.includes("RESOURCE_EXHAUSTED")
     ) {
-      return "I'm sorry, but my cloud engine has exceeded its rate limit quota. Please configure a Custom Provider in Settings.";
+      return "I'm sorry, but my cloud engine has exceeded its rate limit quota. You can use the Settings > Secrets panel to select a billing enabled Gemini API key, or configure a Custom Provider in Settings.";
     }
     return (
       "I encountered a problem connecting to the cloud engine. " +

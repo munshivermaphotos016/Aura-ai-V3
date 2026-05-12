@@ -22,10 +22,8 @@ export interface TaskStep {
  */
 function extractTask(text: string): { steps: TaskStep[], response: string } | null {
   // Pattern: Play [thing] on [app]
-  const playMatch = text.match(/play\s+(.+?)\s+on\s+(.+)/i) || 
-                   text.match(/watch\s+(.+?)\s+on\s+(.+)/i) ||
-                   text.match(/(.+?)\s+chalao\s+on\s+(.+)/i) ||  // Hinglish: "Song chalao on youtube"
-                   text.match(/(.+?)\s+lagao\s+on\s+(.+)/i);    // Hinglish: "Game lagao on playstore"
+  const playMatch = text.match(/(?:play|watch|stream|listen\s+to|start)\s+(.+?)\s+(?:on|in|using)\s+(.+)/i) || 
+                   text.match(/(.+?)\s+(?:chalao|lagao)\s+(?:on|in)\s+(.+)/i);
   if (playMatch) {
     const item = playMatch[1].trim();
     const app = playMatch[2].trim();
@@ -36,32 +34,35 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
         { action: '', payload: {}, description: `Locating ${item} media...` },
         { action: 'system', payload: { action: 'execute' }, description: `Executing playback...` }
       ],
-      response: `Sure, buddy. Opening ${app} so you can watch ${item}.`
+      response: `Sure. Opening ${app} for ${item}.`
     };
   }
 
   // Pattern: Search for [thing] on [app/site]
-  const appSearchMatch = text.match(/search\s+(?:for\s+)?(.+?)\s+on\s+(.+)/i) ||
-                        text.match(/(.+?)\s+dhoondho\s+on\s+(.+)/i); // Hinglish: "Pizza dhoondho on maps"
+  const appSearchMatch = text.match(/(?:search|find|look\s+up|search\s+for)\s+(.+?)\s+(?:on|in)\s+(.+)/i) ||
+                        text.match(/(.+?)\s+dhoondho\s+(?:on|in)\s+(.+)/i);
   if (appSearchMatch) {
     const query = appSearchMatch[1].trim();
     const app = appSearchMatch[2].trim();
-    return {
-      steps: [
-        { action: 'open_app', payload: { app, query }, description: `Searching ${app} for ${query}` },
-        { action: '', payload: {}, description: `Analyzing app layout...` },
-        { action: '', payload: {}, description: `Locating search bar...` },
-        { action: 'system', payload: { action: 'execute' }, description: `Running query: ${query}...` }
-      ],
-      response: `Searching for ${query} on ${app} right now.`
-    };
+    
+    // De-duplicate with browser search
+    if (!['browser', 'google', 'web', 'internet', 'the web'].includes(app.toLowerCase())) {
+        return {
+          steps: [
+            { action: 'open_app', payload: { app, query }, description: `Searching ${app} for ${query}` },
+            { action: '', payload: {}, description: `Analyzing app layout...` },
+            { action: '', payload: {}, description: `Locating search bar...` },
+            { action: 'system', payload: { action: 'execute' }, description: `Running query: ${query}...` }
+          ],
+          response: `Searching for ${query} on ${app} right now.`
+        };
+    }
   }
 
   // Pattern: Open browser and search [thing]
-  const browserSearchMatch = text.match(/search\s+(.+?)\s+on\s+browser/i) || 
-                             text.match(/search\s+(.+?)\s+on\s+google/i) || 
-                             text.match(/search\s+(.+?)(?:\s+on\s+the\s+web|\s+online)/i) ||
-                             text.match(/google\s+(.+)/i);
+  const browserSearchMatch = text.match(/(?:search\s+(?:for\s+)?|find\s+|look\s+up\s+)(.+?)\s+(?:on\s+(?:the\s+)?(?:browser|web|internet|google)|online)/i) || 
+                             text.match(/google\s+(.+)/i) ||
+                             text.match(/(?:search\s+(?:for\s+)?|find\s+|look\s+up\s+)(.+?)\s+online/i);
   if (browserSearchMatch) {
     const query = browserSearchMatch[1].trim();
     return {
@@ -75,9 +76,8 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
   }
 
   // Pattern: Download [thing] from [store]
-  const downloadMatch = text.match(/download\s+(.+?)\s+from\s+(.+)/i) || 
-                       text.match(/get\s+(.+?)\s+(?:from|on)\s+(.+?store)/i) ||
-                       text.match(/download\s+(.+)/i);
+  const downloadMatch = text.match(/(?:download|install|get)\s+(.+?)(?:\s+(?:from|on|using)\s+(.+?(?:store|play)))/i) || 
+                        text.match(/(?:download|install)\s+(.+)/i);
   if (downloadMatch) {
     const item = downloadMatch[1].trim();
     const store = downloadMatch[2]?.trim() || 'play store';
@@ -92,12 +92,26 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
   }
 
   // Pattern: Send message on [app] to [person]
-  const whatsappMatch = text.match(/send\s+(?:a\s+)?(?:message|text)\s+on\s+(.+?)\s+to\s+(.+?)(?:\s+telling|that|saying|say|:)?\s+(.+)?$/i) ||
-                       text.match(/(.+?)\s+par\s+(.+?)\s+ko\s+message\s+(?:karo|bhejo)(?:\s+ki|:)?\s+(.+)?$/i); // Hinglish: "Whatsapp par Rahul ko message bhejo ki hello"
-  if (whatsappMatch) {
-    const app = whatsappMatch[1].trim();
-    const person = whatsappMatch[2].trim();
-    const content = whatsappMatch[3]?.trim();
+  const m1 = text.match(/(?:send\s+(?:a\s+)?(?:message|text|WhatsApp)|message|text|whatsapp)\s+(?:on|using|via)\s+(.+?)\s+to\s+(.+?)(?:\s+(?:telling|that|saying|say|:)\s+(.+))?$/i);
+  const m2 = text.match(/(?:message|text|whatsapp)\s+(.+?)\s+(?:on|using|via)\s+(.+?)(?:\s+(?:telling|that|saying|say|:)\s+(.+))?$/i);
+  const m3 = text.match(/(.+?)\s+(?:par|pe)\s+(.+?)\s+ko\s+message\s+(?:karo|bhejo)(?:\s+(?:ki|:)\s+(.+))?$/i);
+
+  let app = '';
+  let person = '';
+  let content = '';
+
+  if (m1) {
+      app = m1[1]; person = m1[2]; content = m1[3];
+  } else if (m2) {
+      person = m2[1]; app = m2[2]; content = m2[3];
+  } else if (m3) {
+      app = m3[1]; person = m3[2]; content = m3[3];
+  }
+
+  if (app && person) {
+    app = app.trim();
+    person = person.trim();
+    content = content ? content.trim() : '';
     return {
       steps: [
         { action: '', payload: {}, description: `Initializing connection to ${app}...` },
@@ -109,6 +123,53 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
         ? `Ok. Sending "${content}" to ${person} on ${app}.` 
         : `Opening ${app} to message ${person}. What should I say?`
     };
+  }
+
+  // Pattern: Navigation
+  const navMatch = text.match(/(?:navigate|take\s+me|get\s+(?:me\s+)?directions)\s+to\s+(.+?)(?:\s+(?:using|on)\s+(.+))?$/i);
+  if (navMatch) {
+    const destination = navMatch[1].trim();
+    const navApp = navMatch[2]?.trim() || 'maps';
+    return {
+      steps: [
+        { action: 'open_app', payload: { app: navApp, query: destination }, description: `Opening ${navApp}...` },
+        { action: '', payload: {}, description: `Setting destination to ${destination}...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Calculating best route...` }
+      ],
+      response: `Getting directions to ${destination} using ${navApp}.`
+    };
+  }
+
+  // Pattern: Set Alarm / Timer
+  const alarmMatch = text.match(/(?:set|create)\s+(?:an\s+)?alarm\s+for\s+(.+)/i) || 
+                     text.match(/(?:wake\s+me\s+up)\s+(?:at|in)\s+(.+)/i) ||
+                     text.match(/(?:set|start)\s+(?:a\s+)?timer\s+for\s+(.+)/i);
+  if (alarmMatch) {
+    const time = alarmMatch[1].trim();
+    return {
+        steps: [
+            { action: 'open_app', payload: { app: 'clock', query: time }, description: `Opening Clock app...` },
+            { action: '', payload: {}, description: `Setting time to ${time}...` },
+            { action: 'system', payload: { action: 'execute' }, description: `Saving alarm/timer...` }
+        ],
+        response: `Setting that for ${time}.`
+    }
+  }
+
+  // Pattern: System controls (wifi, bluetooth, flashlight)
+  const systemSettingsMatch = text.match(/(?:turn|switch)\s+(on|off)\s+(wifi|wi-fi|bluetooth|flashlight|torch)/i) ||
+                              text.match(/(?:toggle)\s+(wifi|wi-fi|bluetooth|flashlight|torch)/i);
+  if (systemSettingsMatch) {
+      const state = systemSettingsMatch[1] || 'toggle';
+      const device = systemSettingsMatch[2] || systemSettingsMatch[1];
+      return {
+          steps: [
+            { action: 'system', payload: { action: 'settings' }, description: `Accessing system settings...` },
+            { action: '', payload: {}, description: `Locating ${device} controls...` },
+            { action: 'system', payload: { action: 'execute' }, description: `Switching ${device} ${state}...` }
+          ],
+          response: `Turning ${device} ${state}.`
+      }
   }
 
   // Pattern: Search contacts for [name] and [action]
@@ -125,7 +186,7 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
   }
 
   // Pattern: Search device files for [file/document/photo]
-  const fileSearchMatch = text.match(/(?:find|search|look\s+for)\s+(?:my\s+)?(?:file|document|photo|video|image|pdf)?\s*(.+?)\s+(?:in|on)\s+(?:my\s+)?(?:device|phone|storage)/i) ||
+  const fileSearchMatch = text.match(/(?:find|search|look\s+for)\s+(?:my\s+)?(?:file|document|photo|video|image|pdf|folder)?\s*(.+?)\s+(?:in|on)\s+(?:my\s+)?(?:device|phone|storage)/i) ||
                           text.match(/(?:search|find)\s+(?:my\s+)?(?:device|phone|storage)\s+for\s+(.+)/i);
   if (fileSearchMatch) {
     const query = fileSearchMatch[1].trim();
@@ -226,14 +287,14 @@ export function parseLocalCommand(transcript: string, settings: AssistantSetting
   }
 
   // Intent: Call
-  if (text.match(/^(?:call|dial|phone|ring)\b/i)) {
+  if (text.match(/^(?:(?:can\s+(?:you\s+)?)?call|dial|phone|ring|make\s+a\s+call\s+to)\b/i) || text.match(/\b(call|phone)\s+(?:karo|laga|mila)\b/i)) {
     const entity = extractEntity(text, settings, historySlice);
     if (entity.number) {
        return { type: 'call', payload: { number: entity.number, name: entity.name || 'this number' }, response: `Calling ${entity.name || entity.number}...`, confidence: 0.95 };
     }
     
     // Extract target name if specific person mentioned but not in contacts
-    const nameMatch = text.match(/^(?:call|dial|phone|ring)\s+(?:to\s+)?(.+)$/i);
+    const nameMatch = text.match(/(?:call|dial|phone|ring|make\s+a\s+call\s+to)\s+(?:to\s+)?(.+)$/i) || text.match(/(.+?)\s+(?:ko\s+)?(?:call|phone)\s+(?:karo|laga|mila)\b/i);
     const targetName = entity.name || (nameMatch ? nameMatch[1].trim() : null);
     
     if (targetName && targetName.length > 1) {
@@ -242,9 +303,9 @@ export function parseLocalCommand(transcript: string, settings: AssistantSetting
   }
 
   // Intent: Message
-  if (text.match(/^(?:message|sms|text|send\s+text)\b/i)) {
+  if (text.match(/^(?:(?:can\s+(?:you\s+)?)?message|sms|text|send\s+(?:a\s+)?text|send\s+(?:a\s+)?message)\b/i) || text.match(/\b(?:message|text)\s+(?:karo|bhejo)\b/i)) {
     const entity = extractEntity(text, settings, historySlice);
-    const contentMatch = text.match(/(?:telling|saying|that|content|it)\s+(.+)$/i) || text.match(/(?:message|text)\s+.+?\s+(?:to\s+)?(.+)$/i);
+    const contentMatch = text.match(/(?:telling|saying|that|content|it|:)\s+(.+)$/i) || text.match(/(?:message|text)\s+.+?\s+(?:to\s+)?(.+)$/i);
     let content = contentMatch ? contentMatch[1].trim() : null;
     
     // Cleanup content if it captured the name
@@ -264,8 +325,8 @@ export function parseLocalCommand(transcript: string, settings: AssistantSetting
   }
 
   // Intent: Open / Utilities
-  if (text.match(/^(?:open|start|go to|launch|visit|show)\b/i)) {
-    const target = text.replace(/^(open|start|go to|launch|visit|show)\s+(?:me\s+)?/i, '').trim();
+  if (text.match(/^(?:(?:can\s+(?:you\s+)?)?open|start|go\s+to|launch|visit|show|bring\s+up)\b/i)) {
+    const target = text.replace(/^(?:(?:can\s+(?:you\s+)?)?open|start|go\s+to|launch|visit|show|bring\s+up)\s+(?:me\s+)?/i, '').trim();
     const map: Record<string, string> = {
       'maps': 'https://maps.google.com', 'google': 'https://google.com', 'youtube': 'https://youtube.com',
       'weather': 'https://weather.com', 'calculator': 'https://www.google.com/search?q=calculator',

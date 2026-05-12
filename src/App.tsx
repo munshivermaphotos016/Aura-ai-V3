@@ -84,6 +84,8 @@ export default function App() {
     step: "confirm" | "draft" | "confirm_send" | "wait_number";
     content?: string;
   } | null>(null);
+  const [wasLastInputVoice, setWasLastInputVoice] = useState(false);
+  const wasLastInputVoiceRef = useRef(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [currentTask, setCurrentTask] = useState<{
@@ -502,7 +504,9 @@ export default function App() {
       // But just in case, extract the core trigger block
       const extractActionCore = (marker: string) => {
         const parts = finalAction.split(marker);
-        return parts[1]?.trim().split("\n")[0] || "";
+        let val = parts[1]?.trim().split("\n")[0] || "";
+        val = val.replace(/^["']|["']$/g, "").replace(/[*`]/g, "").trim();
+        return val;
       };
 
       if (finalAction.includes("ACTION_CALL:")) {
@@ -638,6 +642,8 @@ export default function App() {
 
   const handleTextSubmit = useCallback(
     async (text: string, isVoice: boolean = false) => {
+      setWasLastInputVoice(isVoice);
+      wasLastInputVoiceRef.current = isVoice;
       if (!text.trim()) return;
 
       // Do not auto-close if we are playing a video/media, let the AI or User close it.
@@ -1105,16 +1111,56 @@ export default function App() {
       let actionTriggered = false;
       let awaitingReply = false;
 
+      // Find JSON block after a given index
+      const extractJsonFromIndex = (text: string, startIndex: number) => {
+        const firstBrace = text.indexOf("{", startIndex);
+        if (firstBrace === -1) return null;
+
+        let braceCount = 0;
+        let inString = false;
+        let escape = false;
+
+        for (let i = firstBrace; i < text.length; i++) {
+          const char = text[i];
+          if (escape) {
+            escape = false;
+            continue;
+          }
+          if (char === "\\") {
+            escape = true;
+            continue;
+          }
+          if (char === '"') {
+            inString = !inString;
+            continue;
+          }
+          if (!inString) {
+            if (char === "{") braceCount++;
+            else if (char === "}") {
+              braceCount--;
+              if (braceCount === 0) {
+                return {
+                  jsonStr: text.substring(firstBrace, i + 1),
+                  endIndex: i + 1,
+                };
+              }
+            }
+          }
+        }
+        return null;
+      };
+
       if (cleanResponse.includes("MEMORY_SAVE:")) {
         try {
-          const parts = cleanResponse.split("MEMORY_SAVE:");
-          cleanResponse = parts[0].trim();
-          const jsonStr = parts[1].trim();
-          // extract anything resembling a JSON object
-          const match = jsonStr.match(/\{[\s\S]*\}/);
-          if (match) {
-            const memoryData = JSON.parse(match[0]);
+          const prefixIndex = cleanResponse.indexOf("MEMORY_SAVE:");
+          const jsonMatch = extractJsonFromIndex(cleanResponse, prefixIndex);
+          if (jsonMatch) {
+            const memoryData = JSON.parse(jsonMatch.jsonStr);
             saveMemory(memoryData);
+            cleanResponse = cleanResponse.replace(
+              cleanResponse.substring(prefixIndex, jsonMatch.endIndex),
+              ""
+            ).trim();
           }
         } catch (e) {
           console.error("Failed to parse MEMORY_SAVE", e);
@@ -1127,33 +1173,60 @@ export default function App() {
       }
 
       let hasTrackerData = false;
-
-      // Extract JSON blocks that might be Task Tracker
-      const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/i;
-      const rawJsonBlockRegex = /(\{[\s\S]*?"goal"[\s\S]*?"steps"[\s\S]*?\})/i;
-
       let jsonToParse = null;
 
-      if (cleanResponse.includes("TASK_TRACKER:")) {
-        const parts = cleanResponse.split("TASK_TRACKER:");
-        const jsonStrRaw = parts[1]?.trim() || "";
-        const match = jsonStrRaw.match(/\{[\s\S]*\}/);
-        if (match) {
-          jsonToParse = match[0];
+      const taskTrackerRegex = /\*?\*?TASK_TRACKER\*?\*?:?\s*/i;
+      const trackerMatch = cleanResponse.match(taskTrackerRegex);
+
+      if (trackerMatch && trackerMatch.index !== undefined) {
+        const jsonMatch = extractJsonFromIndex(cleanResponse, trackerMatch.index);
+        if (jsonMatch) {
+           jsonToParse = jsonMatch.jsonStr;
+           
+           let startIdx = trackerMatch.index;
+           // If there is ```json before the TASK_TRACKER, try to remove it too
+           const beforeString = cleanResponse.substring(0, startIdx);
+           if (beforeString.match(/```(json)?\s*$/)) {
+               const bMatch = beforeString.match(/```(json)?\s*$/);
+               if (bMatch && bMatch.index !== undefined) {
+                   startIdx = bMatch.index;
+               }
+           }
+           
+           let sliceEnd = jsonMatch.endIndex;
+           const trailingMatch = cleanResponse.substring(sliceEnd).match(/^\s*```/);
+           if (trailingMatch) {
+               sliceEnd += trailingMatch[0].length;
+           }
+
+           cleanResponse = cleanResponse.replace(
+             cleanResponse.substring(startIdx, sliceEnd),
+             ""
+           ).trim();
         }
-        cleanResponse = parts[0].trim();
-      } else {
+      } 
+      
+      if (!jsonToParse) {
+        const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?"goal"[\s\S]*?"steps"[\s\S]*?\})\s*```/i;
+        const rawJsonBlockRegex = /(\{[\s\S]*?"goal"[\s\S]*?"steps"[\s\S]*?\})/i;
         const codeBlockMatch = cleanResponse.match(jsonBlockRegex);
+        
         if (codeBlockMatch) {
           jsonToParse = codeBlockMatch[1];
           cleanResponse = cleanResponse.replace(codeBlockMatch[0], "").trim();
         } else {
           const rawMatch = cleanResponse.match(rawJsonBlockRegex);
           if (rawMatch) {
-            jsonToParse = rawMatch[1];
-            cleanResponse = cleanResponse.replace(rawMatch[0], "").trim();
+             const jsonMatch = extractJsonFromIndex(rawMatch[0], 0);
+             if (jsonMatch) {
+               jsonToParse = jsonMatch.jsonStr;
+               cleanResponse = cleanResponse.replace(jsonMatch.jsonStr, "").trim();
+             }
           }
         }
+        
+        // Remove left-over TASK_TRACKER indicator if it exists
+        cleanResponse = cleanResponse.replace(/\*?\*?TASK_TRACKER\*?\*?:?\s*$/i, "").trim();
       }
 
       if (jsonToParse) {
@@ -1209,14 +1282,14 @@ export default function App() {
         return false;
       };
 
-      matchAndExecuteRegex(/ACTION_CALL\s*:\s*(.*)/i, "ACTION_CALL:");
-      matchAndExecuteRegex(/ACTION_MESSAGE\s*:\s*(.*)/i, "ACTION_MESSAGE:");
-      matchAndExecuteRegex(/ACTION_WHATSAPP\s*:\s*(.*)/i, "ACTION_WHATSAPP:");
-      matchAndExecuteRegex(/OPEN_APP\s*:\s*(.*)/i, "OPEN_APP:");
-      matchAndExecuteRegex(/UI_AUTOMATION\s*:\s*(.*)/i, "UI_AUTOMATION:");
-      matchAndExecuteRegex(/OPEN_APP_STORE\s*:\s*(.*)/i, "OPEN_APP_STORE:");
+      matchAndExecuteRegex(/\*?\*?ACTION_CALL\*?\*?\s*:\s*(.*)/i, "ACTION_CALL:");
+      matchAndExecuteRegex(/\*?\*?ACTION_MESSAGE\*?\*?\s*:\s*(.*)/i, "ACTION_MESSAGE:");
+      matchAndExecuteRegex(/\*?\*?ACTION_WHATSAPP\*?\*?\s*:\s*(.*)/i, "ACTION_WHATSAPP:");
+      matchAndExecuteRegex(/\*?\*?OPEN_APP\*?\*?\s*:\s*(.*)/i, "OPEN_APP:");
+      matchAndExecuteRegex(/\*?\*?UI_AUTOMATION\*?\*?\s*:\s*(.*)/i, "UI_AUTOMATION:");
+      matchAndExecuteRegex(/\*?\*?OPEN_APP_STORE\*?\*?\s*:\s*(.*)/i, "OPEN_APP_STORE:");
 
-      const triggerCallMatch = cleanResponse.match(/TRIGGER_CALL\s*:\s*(.*)/i);
+      const triggerCallMatch = cleanResponse.match(/\*?\*?TRIGGER_CALL\*?\*?\s*:\s*(.*)/i);
       if (triggerCallMatch) {
         const num = triggerCallMatch[1].trim();
         const confirmMsg = `${displayResponse} Initiating dial...`;
@@ -1235,7 +1308,7 @@ export default function App() {
       }
 
       const triggerMessageMatch = cleanResponse.match(
-        /TRIGGER_MESSAGE\s*:\s*(.*)/i,
+        /\*?\*?TRIGGER_MESSAGE\*?\*?\s*:\s*(.*)/i,
       );
       if (triggerMessageMatch) {
         const num = triggerMessageMatch[1].trim();
@@ -1255,7 +1328,7 @@ export default function App() {
       }
 
       const triggerWhatsappMatch = cleanResponse.match(
-        /TRIGGER_WHATSAPP\s*:\s*(.*)/i,
+        /\*?\*?TRIGGER_WHATSAPP\*?\*?\s*:\s*(.*)/i,
       );
       if (triggerWhatsappMatch) {
         const num = triggerWhatsappMatch[1].trim();
@@ -1274,7 +1347,7 @@ export default function App() {
         return;
       }
 
-      const openBrowserMatch = cleanResponse.match(/OPEN_BROWSER\s*:\s*(.*)/i);
+      const openBrowserMatch = cleanResponse.match(/\*?\*?OPEN_BROWSER\*?\*?\s*:\s*(.*)/i);
       if (openBrowserMatch) {
         let url = openBrowserMatch[1].trim();
         url = url.replace(/^"|"$/g, "").replace(/^'|'$/g, "");
@@ -1282,8 +1355,8 @@ export default function App() {
           url = "https://" + url;
         }
         setBrowserUrl(url);
-      } else if (cleanResponse.includes("CLOSE_BROWSER")) {
-        displayResponse = displayResponse.replace("CLOSE_BROWSER", "").trim();
+      } else if (cleanResponse.match(/\*?\*?CLOSE_BROWSER\*?\*?/i)) {
+        displayResponse = displayResponse.replace(/\*?\*?CLOSE_BROWSER\*?\*?/gi, "").trim();
         setBrowserUrl(null);
       }
 
@@ -1455,8 +1528,10 @@ export default function App() {
                     setQueuedSystemAction(null);
                   }
                   
-                  // Speak completion
-                  speak("Task completed.");
+                  // Speak completion if it was a voice command
+                  if (wasLastInputVoiceRef.current) {
+                    speak("Task completed.");
+                  }
                   
                   // Add a completion message if we were tracking an active task
                   setMessages((prev) => [
@@ -1662,6 +1737,18 @@ webView.addJavascriptInterface(new WebAppInterface(), "Android");`}
               onStopSpeaking={stopSpeaking}
               onSendText={(text) => handleTextSubmit(text, false)}
               onOpenAssistantSetup={() => setIsAssistantSetupOpen(true)}
+              onEditMessage={(id, newContent) => {
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === id ? { ...m, content: newContent } : m))
+                );
+              }}
+              onDeleteMessage={(id) => {
+                setMessages((prev) => prev.filter((m) => m.id !== id));
+              }}
+              onSearchWeb={(query) => {
+                setBrowserUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}&igu=1`);
+              }}
+              onLinkClick={(url) => window.open(url, "_blank")}
             />
           </div>
         </div>
