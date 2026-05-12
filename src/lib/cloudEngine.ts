@@ -48,6 +48,11 @@ SYSTEM PERMISSIONS (Simulated):
 - SMS: ${settings.permissions?.sms ? "Granted" : "Denied"}
 - App Open Intents: ${settings.permissions?.apps ? "Granted" : "Denied"}
 - Accessibility: ${settings.permissions?.accessibility ? "Granted" : "Denied"}
+- Audio/Microphone: ${settings.permissions?.audio ? "Granted" : "Denied"}
+- Camera: ${settings.permissions?.camera ? "Granted" : "Denied"}
+- Location/GPS: ${settings.permissions?.location ? "Granted" : "Denied"}
+- Storage/Files: ${settings.permissions?.storage ? "Granted" : "Denied"}
+- System Overlay: ${settings.permissions?.overlay ? "Granted" : "Denied"}
 
 If the user asks you to perform an action but they haven't granted the necessary permission in the system settings, you can politely inform them to enable it in the 'System Permissions' settings menu first. However, if they have granted it, proceed WITH NO HESITATION.
       `;
@@ -204,6 +209,11 @@ SYSTEM PERMISSIONS (Simulated):
 - SMS: ${settings.permissions?.sms ? "Granted" : "Denied"}
 - App Open Intents: ${settings.permissions?.apps ? "Granted" : "Denied"}
 - Accessibility: ${settings.permissions?.accessibility ? "Granted" : "Denied"}
+- Audio/Microphone: ${settings.permissions?.audio ? "Granted" : "Denied"}
+- Camera: ${settings.permissions?.camera ? "Granted" : "Denied"}
+- Location/GPS: ${settings.permissions?.location ? "Granted" : "Denied"}
+- Storage/Files: ${settings.permissions?.storage ? "Granted" : "Denied"}
+- System Overlay: ${settings.permissions?.overlay ? "Granted" : "Denied"}
 
 If the user asks you to perform an action but they haven't granted the necessary permission in the system settings, you can politely inform them to enable it in the 'System Permissions' settings menu first. However, if they have granted it, proceed WITH NO HESITATION.
       `;

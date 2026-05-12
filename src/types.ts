@@ -82,10 +82,15 @@ export const defaultSettings: AssistantSettings = {
   hardwareTriggerEnabled: true,
   powerButtonTriggerEnabled: true,
   permissions: {
-    contacts: true,
-    call: true,
-    sms: true,
-    apps: true,
-    accessibility: true,
+    contacts: false,
+    call: false,
+    sms: false,
+    apps: false,
+    accessibility: false,
+    audio: false,
+    camera: false,
+    location: false,
+    storage: false,
+    overlay: false,
   }
 };

@@ -501,7 +501,7 @@ export function Settings({
             <button
               type="button"
               onClick={async () => {
-                const perms = ["audio", "contacts", "call", "sms", "apps", "accessibility", "overlay"];
+                const perms = ["audio", "camera", "location", "storage", "contacts", "call", "sms", "apps", "accessibility", "overlay"];
                 const newPerms = { ...formData.permissions };
                 for (const p of perms) {
                   if (!newPerms[p]) {
@@ -553,6 +553,9 @@ export function Settings({
                 apps: false,
                 accessibility: false,
                 overlay: false,
+                camera: false,
+                location: false,
+                storage: false,
               },
             ).map(([perm, val]) => (
               <div
@@ -593,55 +596,6 @@ export function Settings({
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className="text-xs text-slate-400 mt-4 space-y-2 bg-slate-800 p-4 rounded-xl border border-slate-700">
-            <p className="font-semibold text-blue-400">
-              Native APK Integration Details:
-            </p>
-            {isNativeAndroid() ? (
-              <p className="text-emerald-400 flex items-center gap-1">
-                <Shield size={14} /> Android Native Bridge Connected
-              </p>
-            ) : (
-              <p className="text-amber-400">
-                ⚠️ Running in Web Mode. To get actual deep Android system
-                permissions, you must inject the JavascriptInterface in your
-                Android WebView app.
-              </p>
-            )}
-            <p>
-              In your Android Studio project, you must implement the{" "}
-              <code className="bg-slate-900 px-1 py-0.5 rounded">
-                JavascriptInterface
-              </code>{" "}
-              named{" "}
-              <code className="bg-slate-900 px-1 py-0.5 rounded">Android</code>{" "}
-              on the WebView with methods for{" "}
-              <code className="text-blue-300">
-                requestPermission(String name)
-              </code>{" "}
-              and{" "}
-              <code className="text-blue-300">hasPermission(String name)</code>.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-blue-600/10 border border-blue-500/20 space-y-3">
-            <h4 className="font-bold text-white flex items-center gap-2">
-              <Download size={18} className="text-blue-400" /> Convert to Mobile App (APK)
-            </h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              You don't need to write code to make this an app! Aura is a <strong>Progressive Web App (PWA)</strong>.
-            </p>
-            <ol className="text-xs text-slate-300 space-y-2 list-decimal list-inside">
-              <li>Open this page in <strong>Chrome</strong> on your Android phone.</li>
-              <li>Tap the <strong>three dots</strong> (menu) in the top right.</li>
-              <li>Select <strong>"Add to Home screen"</strong> or <strong>"Install app"</strong>.</li>
-              <li>Aura will now appear in your app drawer as a <strong>Standalone Assistant App</strong>.</li>
-            </ol>
-            <div className="pt-2 text-[10px] text-blue-400/70 italic">
-              * This provides an APK-like experience with full screen toggle and persistence.
-            </div>
           </div>
         </section>
 
