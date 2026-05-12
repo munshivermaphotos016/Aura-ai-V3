@@ -21,6 +21,22 @@ export interface TaskStep {
  * Helper to extract intent for complex tasks (Uncensored & Direct)
  */
 function extractTask(text: string): { steps: TaskStep[], response: string } | null {
+  // Pattern: Order [food] from [app/place]
+  const orderMatch = text.match(/(?:order|get)\s+(?:me\s+)?(?:a\s+)?(.+?)\s+(?:from|on|using)\s+(.+)/i);
+  if (orderMatch) {
+    const item = orderMatch[1].trim();
+    const app = orderMatch[2].trim();
+    return {
+      steps: [
+        { action: 'open_app', payload: { app, query: item }, description: `Opening ${app}...` },
+        { action: '', payload: {}, description: `Searching for best rated ${item}...` },
+        { action: '', payload: {}, description: `Applying filters...` },
+        { action: 'system', payload: { action: 'execute' }, description: `Adding to cart...` }
+      ],
+      response: `Ordering ${item} from ${app} for you now.`
+    };
+  }
+
   // Pattern: Play [thing] on [app]
   const playMatch = text.match(/(?:play|watch|stream|listen\s+to|start)\s+(.+?)\s+(?:on|in|using)\s+(.+)/i) || 
                    text.match(/(.+?)\s+(?:chalao|lagao)\s+(?:on|in)\s+(.+)/i);

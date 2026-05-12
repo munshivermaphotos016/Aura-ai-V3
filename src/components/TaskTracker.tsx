@@ -197,43 +197,25 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
       initial={{ opacity: 0, y: -20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -20, scale: 0.95 }}
-      className="fixed top-[env(safe-area-inset-top,1rem)] left-1/2 -translate-x-1/2 mt-4 z-[100] w-[90vw] max-w-lg bg-slate-900/80 backdrop-blur-xl border border-white/10 shadow-2xl rounded-full cursor-grab active:cursor-grabbing overflow-hidden"
+      className="fixed top-[env(safe-area-inset-top,1rem)] left-1/2 -translate-x-1/2 mt-4 z-[100] w-[90vw] max-w-lg bg-slate-900/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl cursor-grab active:cursor-grabbing overflow-hidden"
     >
-      <div className="flex items-center justify-between px-4 py-2 gap-3 pointer-events-auto">
+      <div className="flex items-center justify-between px-4 py-3 gap-3 pointer-events-auto border-b border-white/5">
         <div className="flex items-center gap-3 overflow-hidden flex-1 pointer-events-none">
           <Activity
-            size={16}
+            size={18}
             className="text-blue-400 shrink-0 animate-pulse"
           />
           <div className="flex flex-col overflow-hidden">
             <span
-              className="text-white/60 text-[10px] font-bold uppercase tracking-wider truncate mb-0.5"
+              className="text-white text-sm font-semibold truncate mb-0.5"
               title={goal}
             >
               {goal}
             </span>
-            <span className="text-blue-100 text-xs font-medium truncate flex items-center gap-2">
-              {activeStepItem?.status === "active" && (
-                <Loader2
-                  size={12}
-                  className="shrink-0 animate-spin text-blue-400"
-                />
-              )}
-              {activeStepItem?.status === "done" && (
-                <CheckCircle2 size={12} className="shrink-0 text-emerald-400" />
-              )}
-              {activeStepItem?.status === "pending" && (
-                <Circle size={12} className="shrink-0 text-slate-500" />
-              )}
-              {activeStepItem?.status === "error" && (
-                <X size={12} className="shrink-0 text-red-500" />
-              )}
-              {activeStepItem?.name || "Processing..."}
-            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 border-l border-white/10 pl-3">
+        <div className="flex items-center gap-2 shrink-0">
           {onCancel && (
             <button
               onClick={onCancel}
@@ -253,6 +235,33 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
             </button>
           )}
         </div>
+      </div>
+      
+      <div className="flex flex-col px-4 py-2 gap-1.5 max-h-48 overflow-y-auto">
+        {currentSteps.map((step, idx) => (
+          <div key={idx} className={`flex items-center gap-3 text-sm py-1 font-medium ${
+            step.status === 'active' ? 'text-blue-100' : 
+            step.status === 'done' ? 'text-slate-400' :
+            step.status === 'error' ? 'text-red-300' :
+            'text-slate-600'
+          }`}>
+            <span className="shrink-0 flex items-center justify-center w-5">
+              {step.status === "active" && (
+                <Loader2 size={14} className="animate-spin text-blue-400" />
+              )}
+              {step.status === "done" && (
+                <CheckCircle2 size={14} className="text-emerald-400" />
+              )}
+              {step.status === "pending" && (
+                <Circle size={14} className="text-slate-600" />
+              )}
+              {step.status === "error" && (
+                <X size={14} className="text-red-500" />
+              )}
+            </span>
+            <span className="truncate">{step.name}</span>
+          </div>
+        ))}
       </div>
     </motion.div>
   );

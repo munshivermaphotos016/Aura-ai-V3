@@ -145,6 +145,11 @@ export default function App() {
           }
         }
 
+        if (typeof window !== "undefined" && (window as any).Android && typeof (window as any).Android.executeAction === "function") {
+             (window as any).Android.executeAction(type, number, content || "");
+             return;
+        }
+
         a.href = url;
         document.body.appendChild(a);
         a.click();
@@ -485,6 +490,12 @@ export default function App() {
   );
 
   const openIntentUrl = useCallback((url: string) => {
+    // Advanced Native Android Bridge Check (optimizes for Android Studio conversion)
+    if (typeof window !== "undefined" && (window as any).Android && typeof (window as any).Android.openIntent === "function") {
+      (window as any).Android.openIntent(url);
+      return;
+    }
+
     const a = document.createElement("a");
     a.href = url;
     a.target = "_blank"; // Use _blank to escape sandbox restrictions
@@ -635,6 +646,8 @@ export default function App() {
         setBrowserUrl(url);
       } else if (finalAction.includes("CLOSE_BROWSER")) {
         setBrowserUrl("");
+      } else if (finalAction && finalAction !== "execute" && finalAction !== "system") {
+        throw new Error(`Unhandled action format: ${finalAction}`);
       }
     },
     [settings.androidMode, openIntentUrl, handleSystemContactSearch],

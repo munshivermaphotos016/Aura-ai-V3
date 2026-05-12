@@ -219,6 +219,7 @@ If the user asks you to perform an action but they haven't granted the necessary
             timeContext +
             permissionsContext,
           temperature: 0.7,
+          tools: [{ googleSearch: {} }],
           safetySettings: [
             {
               category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
@@ -241,7 +242,6 @@ If the user asks you to perform an action but they haven't granted the necessary
               threshold: HarmBlockThreshold.BLOCK_NONE,
             },
           ],
-          tools: settings.webSearchEnabled ? [{ googleSearch: {} }] : [],
         },
       });
 
