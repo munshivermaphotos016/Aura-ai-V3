@@ -197,71 +197,54 @@ export const TaskTracker: React.FC<TaskTrackerProps> = ({
       initial={{ opacity: 0, y: -20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -20, scale: 0.95 }}
-      className="fixed top-[env(safe-area-inset-top,1rem)] left-1/2 -translate-x-1/2 mt-4 z-[100] w-[90vw] max-w-lg bg-slate-900/90 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl cursor-grab active:cursor-grabbing overflow-hidden"
+      className="fixed top-[env(safe-area-inset-top,0.5rem)] left-1/2 -translate-x-1/2 mt-2 z-[100] w-max max-w-[95vw] px-4 py-2.5 bg-black/80 backdrop-blur-3xl border border-white/10 shadow-[0_4px_24px_rgba(0,0,0,0.4)] rounded-full cursor-grab active:cursor-grabbing overflow-hidden flex items-center justify-between gap-3 pointer-events-auto"
     >
-      <div className="flex items-center justify-between px-4 py-3 gap-3 pointer-events-auto border-b border-white/5">
-        <div className="flex items-center gap-3 overflow-hidden flex-1 pointer-events-none">
-          <Activity
-            size={18}
-            className="text-blue-400 shrink-0 animate-pulse"
-          />
-          <div className="flex flex-col overflow-hidden">
-            <span
-              className="text-white text-sm font-semibold truncate mb-0.5"
-              title={goal}
-            >
-              {goal}
+      <div className="flex items-center gap-2 overflow-hidden pointer-events-none flex-1">
+        <Activity
+          size={14}
+          className="text-white shrink-0 animate-pulse"
+        />
+        <div className="flex items-center gap-2 overflow-hidden flex-1">
+          <span
+            className="text-white/95 text-[13px] font-medium tracking-wide truncate max-w-[150px] sm:max-w-[200px]"
+            title={goal}
+          >
+            {goal}
+          </span>
+          {activeStepItem && (
+            <span className="text-white/70 text-[12px] truncate flex items-center gap-1.5 ml-2 border-l border-white/10 pl-3 shrink-0">
+              {activeStepItem.status === "active" ? (
+                <Loader2 size={12} className="animate-spin text-white/50 shrink-0" />
+              ) : activeStepItem.status === "done" ? (
+                <CheckCircle2 size={12} className="text-white/50 shrink-0" />
+              ) : (
+                <Circle size={10} className="text-white/30 shrink-0" />
+              )}
+              <span className="truncate max-w-[120px] sm:max-w-[180px]">{activeStepItem.name}</span>
             </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-full transition cursor-pointer"
-              title="Cancel & Stop Task"
-            >
-              <Square size={14} className="fill-current opacity-80" />
-            </button>
-          )}
-          {onDismiss && (
-            <button
-              onClick={onDismiss}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-full transition cursor-pointer"
-              title="Dismiss UI (Keep running)"
-            >
-              <X size={16} />
-            </button>
           )}
         </div>
       </div>
-      
-      <div className="flex flex-col px-4 py-2 gap-1.5 max-h-48 overflow-y-auto">
-        {currentSteps.map((step, idx) => (
-          <div key={idx} className={`flex items-center gap-3 text-sm py-1 font-medium ${
-            step.status === 'active' ? 'text-blue-100' : 
-            step.status === 'done' ? 'text-slate-400' :
-            step.status === 'error' ? 'text-red-300' :
-            'text-slate-600'
-          }`}>
-            <span className="shrink-0 flex items-center justify-center w-5">
-              {step.status === "active" && (
-                <Loader2 size={14} className="animate-spin text-blue-400" />
-              )}
-              {step.status === "done" && (
-                <CheckCircle2 size={14} className="text-emerald-400" />
-              )}
-              {step.status === "pending" && (
-                <Circle size={14} className="text-slate-600" />
-              )}
-              {step.status === "error" && (
-                <X size={14} className="text-red-500" />
-              )}
-            </span>
-            <span className="truncate">{step.name}</span>
-          </div>
-        ))}
+
+      <div className="flex items-center gap-1.5 ml-2 pl-3 border-l border-white/10 shrink-0">
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            className="p-1.5 text-white/50 hover:text-red-400 hover:bg-white/10 rounded-full transition cursor-pointer"
+            title="Cancel & Stop Task"
+          >
+            <Square size={12} className="fill-current opacity-80" />
+          </button>
+        )}
+        {onDismiss && (
+          <button
+            onClick={onDismiss}
+            className="p-1.5 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition cursor-pointer"
+            title="Dismiss UI (Keep running)"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
     </motion.div>
   );

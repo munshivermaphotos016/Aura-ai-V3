@@ -7,6 +7,7 @@ export async function processWithCloudEngine(
   settings: AssistantSettings,
   messageHistory: { role: string; content: string }[],
   memory: Record<string, any> = {},
+  base64Image: string | null = null
 ) {
   try {
     const selectedId = settings.selectedProviderId || "default";
@@ -68,8 +69,18 @@ If the user asks you to perform an action but they haven't granted the necessary
             permissionsContext,
         },
         ...messageHistory.map((m) => ({ role: m.role, content: m.content })),
-        { role: "user", content: text },
       ];
+
+      const userMessageContext: any = { role: "user", content: [] };
+      if (base64Image) {
+        userMessageContext.content.push({
+          type: "image_url",
+          image_url: { url: `data:image/jpeg;base64,${base64Image}` },
+        });
+      }
+      userMessageContext.content.push({ type: "text", text: text });
+      
+      formattedMessages.push(userMessageContext);
 
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -80,6 +91,9 @@ If the user asks you to perform an action but they haven't granted the necessary
       }
 
       let cleanBaseUrl = (config.baseUrl || "").trim().replace(/\/$/, "");
+      if (!cleanBaseUrl) {
+        throw new Error("Base URL is empty. Please set a valid API Base URL in Settings.");
+      }
       if (!cleanBaseUrl.startsWith("http")) {
         cleanBaseUrl = "https://" + cleanBaseUrl;
       }
@@ -109,8 +123,11 @@ If the user asks you to perform an action but they haven't granted the necessary
       const payload = {
         model: modelName,
         messages: formattedMessages,
-        max_tokens: 1000,
-        temperature: 0.7,
+        max_tokens: 2000,
+        temperature: 0.8,
+        safe_prompt: false,
+        safety_settings: "none",
+        top_p: 0.95
       };
 
       if (
@@ -188,12 +205,23 @@ If the user asks you to perform an action but they haven't granted the necessary
       // Default: Gemini with Search Grounding
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+      const userParts: any[] = [];
+      if (base64Image) {
+        userParts.push({
+          inlineData: {
+            data: base64Image,
+            mimeType: "image/jpeg",
+          },
+        });
+      }
+      userParts.push({ text: text });
+
       const formattedContents = [
         ...messageHistory.map((m) => ({
           role: m.role === "assistant" ? "model" : "user",
           parts: [{ text: m.content }],
         })),
-        { role: "user", parts: [{ text }] },
+        { role: "user", parts: userParts },
       ];
 
       const contactContext =
@@ -229,7 +257,7 @@ If the user asks you to perform an action but they haven't granted the necessary
             timeContext +
             permissionsContext,
           temperature: 0.7,
-          tools: [{ googleSearch: {} }],
+          tools: settings.webSearchEnabled ? [{ googleSearch: {} }] : undefined,
           safetySettings: [
             {
               category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,

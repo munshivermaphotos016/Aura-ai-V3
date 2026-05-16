@@ -16,7 +16,13 @@ async function startServer() {
   // Proxy endpoint to bypass X-Frame-Options and CORS
   app.get("/api/proxy", async (req, res) => {
     const targetUrl = req.query.url as string;
-    if (!targetUrl || targetUrl === "undefined" || targetUrl === "null") return res.status(400).send("No valid URL provided");
+    if (!targetUrl || targetUrl === "undefined" || targetUrl === "null" || targetUrl === "https://") return res.status(400).send("No valid URL provided");
+
+    try {
+      new URL(targetUrl); // Validate first
+    } catch {
+      return res.status(400).send(`Invalid URL: ${targetUrl}`);
+    }
 
     try {
       const response = await fetch(targetUrl, {

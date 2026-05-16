@@ -149,6 +149,12 @@ export function useChatManager() {
     }
   };
 
+  const editSessionTitle = (id: string, newTitle: string) => {
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, title: newTitle } : s))
+    );
+  };
+
   const clearAllSessions = () => {
     setSessions([]);
     setCurrentSessionId(null);
@@ -171,6 +177,7 @@ export function useChatManager() {
     setMessages,
     createNewSession,
     deleteSession,
+    editSessionTitle,
     clearAllSessions,
     memory,
     saveMemory,

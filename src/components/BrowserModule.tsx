@@ -124,7 +124,9 @@ export function BrowserModule({
   };
 
   const getDisplayUrl = () => {
-    let safeUrl = currentUrl;
+    let safeUrl = currentUrl?.trim();
+    if (!safeUrl) return "";
+
     if (safeUrl.startsWith("aura://")) {
       const urlObj = new URL(safeUrl);
       const q =
@@ -136,8 +138,12 @@ export function BrowserModule({
       } else if (urlObj.hostname === "youtube") {
         safeUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
       }
-    } else if (!safeUrl.includes("://")) {
+    } else if (!safeUrl.includes("://") && safeUrl !== "about:blank") {
       safeUrl = "https://" + safeUrl;
+    }
+
+    if (safeUrl === "https://" || safeUrl === "about:blank") {
+      return safeUrl;
     }
 
     if (safeUrl.includes("google.com/search") && safeUrl.includes("igu=1")) {

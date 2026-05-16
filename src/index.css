@@ -1,2 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+@theme {
+  --color-bg: #030014;
+  --color-accent: #00f0ff;
+  --color-accent-alt: #8a2be2;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-bg);
+  color: #fff;
+  overflow: hidden;
+}
+
+/* Atmospheric background—layered gradients */
+.aura-atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 15% 30%, rgba(138, 43, 226, 0.08) 0%, transparent 60%),
+    radial-gradient(circle at 85% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, var(--color-bg) 0%, var(--color-bg) 100%);
+  filter: blur(60px);
+  transition: all 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.aura-atmosphere.listening {
+  background:
+    radial-gradient(circle at 20% 40%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 60%, rgba(138, 43, 226, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, var(--color-bg) 0%, var(--color-bg) 100%);
+  animation: pulse-atmosphere 4s infinite alternate ease-in-out;
+}
+
+.aura-atmosphere.processing {
+  background:
+    radial-gradient(circle at 50% 20%, rgba(236, 72, 153, 0.12) 0%, transparent 60%),
+    radial-gradient(circle at 50% 80%, rgba(138, 43, 226, 0.15) 0%, transparent 60%),
+    radial-gradient(circle at 50% 50%, var(--color-bg) 0%, var(--color-bg) 100%);
+  animation: rotate-atmosphere 6s linear infinite;
+}
+
+.aura-atmosphere.speaking {
+  background:
+    radial-gradient(circle at 30% 70%, rgba(16, 185, 129, 0.12) 0%, transparent 60%),
+    radial-gradient(circle at 70% 30%, rgba(59, 130, 246, 0.12) 0%, transparent 60%),
+    radial-gradient(circle at 50% 50%, var(--color-bg) 0%, var(--color-bg) 100%);
+  animation: wave-atmosphere 5s infinite alternate ease-in-out;
+}
+
+@keyframes pulse-atmosphere {
+  0% { transform: scale(1); filter: blur(60px) brightness(1); }
+  50% { transform: scale(1.02); filter: blur(70px) brightness(1.1); }
+  100% { transform: scale(1); filter: blur(60px) brightness(1); }
+}
+
+@keyframes rotate-atmosphere {
+  0% { filter: hue-rotate(0deg) blur(60px); transform: scale(1.02); }
+  50% { filter: hue-rotate(90deg) blur(70px); transform: scale(1.04); }
+  100% { filter: hue-rotate(180deg) blur(60px); transform: scale(1.02); }
+}
+
+@keyframes wave-atmosphere {
+  0% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-15px) scale(1.02); filter: blur(70px); }
+  100% { transform: translateY(0px) scale(1); }
+}
+
+/* Glass morphism player chrome */
+.aura-glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.2);
+}
+
+.neon-text {
+  text-shadow: 0 0 20px rgba(255,255,255, 0.2);
+  background: linear-gradient(135deg, #ffffff, #a8c7fa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Floating orb glow */
+.orb-glow-blue {
+  box-shadow: 0 0 40px rgba(59, 130, 246, 0.2), inset 0 0 20px rgba(59, 130, 246, 0.1);
+}
+.orb-glow-red {
+  box-shadow: 0 0 40px rgba(239, 68, 68, 0.2), inset 0 0 20px rgba(239, 68, 68, 0.1);
+}
+.orb-glow-green {
+  box-shadow: 0 0 40px rgba(16, 185, 129, 0.2), inset 0 0 20px rgba(16, 185, 129, 0.1);
+}
+
+/* Scrollbar customizations */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

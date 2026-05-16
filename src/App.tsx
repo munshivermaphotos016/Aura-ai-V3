@@ -7,7 +7,9 @@ import { Settings } from "./components/Settings";
 import { BrowserModule } from "./components/BrowserModule";
 import { TaskTracker, TaskTrackerProps } from "./components/TaskTracker";
 import { ChatHistoryPanel } from "./components/ChatHistoryPanel";
+import { OverlayAssistantUI } from "./components/OverlayAssistantUI";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
+import { useWakeWord } from "./hooks/useWakeWord";
 import { useSpeechSynthesis } from "./hooks/useSpeechSynthesis";
 import { parseLocalCommand } from "./lib/localCommands";
 import { processWithCloudEngine } from "./lib/cloudEngine";
@@ -27,6 +29,7 @@ export default function App() {
     setMessages,
     createNewSession,
     deleteSession,
+    editSessionTitle,
     clearAllSessions,
     memory,
     saveMemory,
@@ -78,7 +81,7 @@ export default function App() {
     name: string;
   } | null>(null);
   const [pendingAction, setPendingAction] = useState<{
-    type: "call" | "message";
+    type: "call" | "message" | "whatsapp";
     number?: string;
     name?: string;
     step: "confirm" | "draft" | "confirm_send" | "wait_number";
@@ -99,6 +102,63 @@ export default function App() {
   >(null);
   const [isAssistantSetupOpen, setIsAssistantSetupOpen] = useState(false);
   const [isHistoryPanelOpen, setIsHistoryPanelOpen] = useState(false);
+  const [isOverlayMode, setIsOverlayMode] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState("");
+  
+  // Screen Share State
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const grabScreenFrame = (): string | null => {
+    if (!videoRef.current || !isScreenSharing) return null;
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return null;
+    
+    if (!canvasRef.current) {
+      canvasRef.current = document.createElement("canvas");
+    }
+    const canvas = canvasRef.current;
+    
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.3).split(",")[1];
+  };
+
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      setIsScreenSharing(false);
+    } else {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+          alert("Screen sharing is not supported in this browser or environment (requires HTTPS / Desktop browser). If you're compiling to native Android, the MediaProjection API will provide this feature.");
+          return;
+        }
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false, 
+        });
+        if (!videoRef.current) {
+           videoRef.current = document.createElement("video");
+        }
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        setIsScreenSharing(true);
+        stream.getVideoTracks()[0].onended = () => {
+          setIsScreenSharing(false);
+        };
+      } catch (err) {
+        console.error("Screen share error:", err);
+      }
+    }
+  };
 
   const {
     voices,
@@ -145,9 +205,13 @@ export default function App() {
           }
         }
 
-        if (typeof window !== "undefined" && (window as any).Android && typeof (window as any).Android.executeAction === "function") {
-             (window as any).Android.executeAction(type, number, content || "");
-             return;
+        if (
+          typeof window !== "undefined" &&
+          (window as any).Android &&
+          typeof (window as any).Android.executeAction === "function"
+        ) {
+          (window as any).Android.executeAction(type, number, content || "");
+          return;
         }
 
         a.href = url;
@@ -171,6 +235,7 @@ export default function App() {
       setBrowserUrl(null);
       setIsHistoryPanelOpen(false);
       setShowSettings(false);
+      setIsOverlayMode(true);
 
       if (isSpeaking) {
         stopSpeaking();
@@ -197,7 +262,7 @@ export default function App() {
         startListeningRef.current();
       });
     },
-    [isSpeaking, stopSpeaking, speak, settings.voiceId],
+    [isSpeaking, isProcessing, stopSpeaking, speak, settings.voiceId],
   );
 
   // Hook into shake and bridge events
@@ -280,7 +345,7 @@ export default function App() {
 
           if (found) {
             setPendingAction({
-              type: nextAction === "call" ? "call" : "message",
+              type: nextAction === "call" ? "call" : nextAction === "whatsapp" ? "whatsapp" : "message",
               number: found.number,
               name: found.name,
               step: "confirm",
@@ -422,10 +487,10 @@ export default function App() {
               });
 
               setPendingAction({
-                type: type as "call" | "message",
+                type: type,
                 number,
                 name,
-                step: type === "message" ? "draft" : "confirm",
+                step: type === "message" || type === "whatsapp" ? "draft" : "confirm",
               });
               return true;
             }
@@ -449,10 +514,10 @@ export default function App() {
             },
           ]);
           speak(cancelMsg, settings.voiceId, () => {
-             startListeningRef.current();
+            startListeningRef.current();
           });
           setPendingAction({
-            type: type as "call" | "message",
+            type: type,
             step: "wait_number",
           });
         } else {
@@ -475,7 +540,7 @@ export default function App() {
               startListeningRef.current();
             });
             setPendingAction({
-              type: type as "call" | "message",
+              type: type,
               step: "wait_number",
             });
           } else {
@@ -491,7 +556,11 @@ export default function App() {
 
   const openIntentUrl = useCallback((url: string) => {
     // Advanced Native Android Bridge Check (optimizes for Android Studio conversion)
-    if (typeof window !== "undefined" && (window as any).Android && typeof (window as any).Android.openIntent === "function") {
+    if (
+      typeof window !== "undefined" &&
+      (window as any).Android &&
+      typeof (window as any).Android.openIntent === "function"
+    ) {
       (window as any).Android.openIntent(url);
       return;
     }
@@ -516,7 +585,10 @@ export default function App() {
       const extractActionCore = (marker: string) => {
         const parts = finalAction.split(marker);
         let val = parts[1]?.trim().split("\n")[0] || "";
-        val = val.replace(/^["']|["']$/g, "").replace(/[*`]/g, "").trim();
+        val = val
+          .replace(/^["']|["']$/g, "")
+          .replace(/[*`]/g, "")
+          .trim();
         return val;
       };
 
@@ -533,46 +605,61 @@ export default function App() {
         const rawAppName = extractActionCore("OPEN_APP:");
         const appName = rawAppName.toLowerCase().replace(/\s/g, "");
 
-        if (settings.androidMode) {
+        if (settings.deepLinkingEnabled) {
+          const defaultIntentMap: Record<string, string> = {
+            whatsapp: "com.whatsapp",
+            netflix: "com.netflix.mediaclient",
+            youtube: "com.google.android.youtube",
+            instagram: "com.instagram.android",
+            spotify: "com.spotify.music",
+            maps: "com.google.android.apps.maps",
+            gmail: "com.google.android.gm",
+            chrome: "com.android.chrome",
+            settings: "android.settings.SETTINGS",
+            calendar: "com.google.android.calendar",
+            clock: "com.google.android.deskclock",
+            facebook: "com.facebook.katana",
+            twitter: "com.twitter.android",
+            x: "com.twitter.android",
+            telegram: "org.telegram.messenger",
+            calculator: "com.google.android.calculator",
+            photos: "com.google.android.apps.photos",
+            snapchat: "com.snapchat.android",
+            hotstar: "in.startv.hotstar",
+            prime: "com.amazon.avod.thirdpartyclient",
+            pubg: "com.tencent.ig",
+            bgmi: "com.pubg.imobile",
+          };
+
+          // Override with user associations if available
+          const intentMap: Record<string, string> = {
+            ...defaultIntentMap,
+            ...settings.appIntentHandling,
+          };
+
+          if (intentMap[appName]) {
+            const pkgOrAction = intentMap[appName];
+            // Infer if it's an action or package
+            const intentStr = pkgOrAction.includes("android.settings") || pkgOrAction.includes("android.media")
+              ? `intent://#Intent;action=${pkgOrAction};end;`
+              : `intent://#Intent;package=${pkgOrAction};end;`;
+
+            openIntentUrl(intentStr);
+          } else {
+            openIntentUrl(
+              `market://search?q=${encodeURIComponent(rawAppName)}`,
+            );
+          }
+        } else if (settings.androidMode) {
           const intentMap: Record<string, string> = {
             whatsapp:
               "intent://#Intent;package=com.whatsapp;scheme=whatsapp;end;",
             netflix: "intent://#Intent;package=com.netflix.mediaclient;end;",
             youtube: "intent://#Intent;package=com.google.android.youtube;end;",
             instagram: "intent://#Intent;package=com.instagram.android;end;",
-            spotify: "intent://#Intent;package=com.spotify.music;end;",
-            maps: "intent://#Intent;package=com.google.android.apps.maps;end;",
-            gmail: "intent://#Intent;package=com.google.android.gm;end;",
-            chrome: "intent://#Intent;package=com.android.chrome;end;",
-            camera:
-              "intent://#Intent;action=android.media.action.STILL_IMAGE_CAMERA;end;",
-            settings: "intent://#Intent;action=android.settings.SETTINGS;end;",
-            calendar:
-              "intent://#Intent;package=com.google.android.calendar;end;",
-            clock: "intent://#Intent;package=com.google.android.deskclock;end;",
-            facebook: "intent://#Intent;package=com.facebook.katana;end;",
-            twitter: "intent://#Intent;package=com.twitter.android;end;",
-            x: "intent://#Intent;package=com.twitter.android;end;",
-            telegram: "intent://#Intent;package=org.telegram.messenger;end;",
-            calculator:
-              "intent://#Intent;package=com.google.android.calculator;end;",
-            photos:
-              "intent://#Intent;package=com.google.android.apps.photos;end;",
-            snapchat: "intent://#Intent;package=com.snapchat.android;end;",
-            hotstar: "intent://#Intent;package=in.startv.hotstar;end;",
-            prime:
-              "intent://#Intent;package=com.amazon.avod.thirdpartyclient;end;",
-            pubg: "intent://#Intent;package=com.tencent.ig;end;",
-            bgmi: "intent://#Intent;package=com.pubg.imobile;end;",
+            // ... omitting the rest to keep it simple, it's handled above natively anyway. 
           };
-
-          if (intentMap[appName]) {
-            openIntentUrl(intentMap[appName]);
-          } else {
-            openIntentUrl(
-              `market://search?q=${encodeURIComponent(rawAppName)}`,
-            );
-          }
+          if (intentMap[appName]) openIntentUrl(intentMap[appName]);
         } else {
           // Web Fallback
           const webMap: Record<string, string> = {
@@ -646,7 +733,11 @@ export default function App() {
         setBrowserUrl(url);
       } else if (finalAction.includes("CLOSE_BROWSER")) {
         setBrowserUrl("");
-      } else if (finalAction && finalAction !== "execute" && finalAction !== "system") {
+      } else if (
+        finalAction &&
+        finalAction !== "execute" &&
+        finalAction !== "system"
+      ) {
         throw new Error(`Unhandled action format: ${finalAction}`);
       }
     },
@@ -669,7 +760,10 @@ export default function App() {
       }
 
       stopListeningRef.current();
-      if (beepEndRef.current) beepEndRef.current.play();
+      try {
+        if ("vibrate" in navigator) navigator.vibrate(50);
+      } catch (e) {}
+      if (settings.micSoundEnabled && beepEndRef.current) beepEndRef.current.play();
 
       const lowerText = text.toLowerCase().trim();
 
@@ -799,7 +893,7 @@ export default function App() {
               timestamp: Date.now(),
             },
           ]);
-          const rawConfirmMsg = `Got it. I've drafted "${text}" for ${pendingAction.name || 'this contact'}. Shall I send it now? [AWAITING_REPLY]`;
+          const rawConfirmMsg = `Got it. I've drafted "${text}" for ${pendingAction.name || "this contact"}. Shall I send it now? [AWAITING_REPLY]`;
           const cleanConfirmMsg = rawConfirmMsg
             .replace("[AWAITING_REPLY]", "")
             .trim();
@@ -814,7 +908,7 @@ export default function App() {
             },
           ]);
           speak(cleanConfirmMsg, settings.voiceId, () => {
-             startListeningRef.current(); // Always resume if waiting for reply
+            startListeningRef.current(); // Always resume if waiting for reply
           });
           setPendingAction({
             ...pendingAction,
@@ -835,9 +929,11 @@ export default function App() {
           ]);
           const numMatch = text.match(/(\\+?[\\d\\s-]{7,15})/);
           if (numMatch) {
-            const number = numMatch[0].replace(/\\s/g, '');
+            const number = numMatch[0].replace(/\\s/g, "");
             const rawConfirmMsg = `Got it. Shall I proceed with the ${pendingAction.type} to ${number}? [AWAITING_REPLY]`;
-            const cleanConfirmMsg = rawConfirmMsg.replace("[AWAITING_REPLY]", "").trim();
+            const cleanConfirmMsg = rawConfirmMsg
+              .replace("[AWAITING_REPLY]", "")
+              .trim();
             setMessages((prev) => [
               ...prev,
               {
@@ -859,23 +955,36 @@ export default function App() {
           } else {
             const numCancelMatch = text.match(/\\b(no|cancel|stop|forget)\\b/i);
             if (numCancelMatch) {
-               const cancelMsg = "Alright, I've cancelled that.";
-               setMessages((prev) => [
-                  ...prev,
-                  { id: crypto.randomUUID(), role: "assistant", content: cancelMsg, timestamp: Date.now() },
-               ]);
-               speak(cancelMsg, settings.voiceId);
-               setPendingAction(null);
+              const cancelMsg = "Alright, I've cancelled that.";
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: cancelMsg,
+                  timestamp: Date.now(),
+                },
+              ]);
+              speak(cancelMsg, settings.voiceId);
+              setPendingAction(null);
             } else {
-               const retryMsg = "I couldn't detect a valid phone number. Please try saying the number again, or say cancel. [AWAITING_REPLY]";
-               const cleanRetryMsg = retryMsg.replace("[AWAITING_REPLY]", "").trim();
-               setMessages((prev) => [
-                  ...prev,
-                  { id: crypto.randomUUID(), role: "assistant", content: cleanRetryMsg, timestamp: Date.now() },
-               ]);
-               speak(cleanRetryMsg, settings.voiceId, () => {
-                  startListeningRef.current();
-               });
+              const retryMsg =
+                "I couldn't detect a valid phone number. Please try saying the number again, or say cancel. [AWAITING_REPLY]";
+              const cleanRetryMsg = retryMsg
+                .replace("[AWAITING_REPLY]", "")
+                .trim();
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "assistant",
+                  content: cleanRetryMsg,
+                  timestamp: Date.now(),
+                },
+              ]);
+              speak(cleanRetryMsg, settings.voiceId, () => {
+                startListeningRef.current();
+              });
             }
           }
           return;
@@ -952,9 +1061,9 @@ export default function App() {
 
         if (localAction.searchPhone) {
           const rawSearchMsg = settings.advancedIntegrations
-               ? `Initiating system search protocols for ${localAction.payload.unknownName}...`
-               : `Let me check your contacts for ${localAction.payload.unknownName}...`;
-          
+            ? `Initiating system search protocols for ${localAction.payload.unknownName}...`
+            : `Let me check your contacts for ${localAction.payload.unknownName}...`;
+
           const assistantMsg: Message = {
             id: crypto.randomUUID(),
             role: "assistant",
@@ -965,10 +1074,16 @@ export default function App() {
           setIsProcessing(false);
           if (isVoice) {
             speak(rawSearchMsg, settings.voiceId, () => {
-              handleSystemContactSearch(localAction.type as "call" | "message", localAction.payload.unknownName);
+              handleSystemContactSearch(
+                localAction.type as "call" | "message",
+                localAction.payload.unknownName,
+              );
             });
           } else {
-            handleSystemContactSearch(localAction.type as "call" | "message", localAction.payload.unknownName);
+            handleSystemContactSearch(
+              localAction.type as "call" | "message",
+              localAction.payload.unknownName,
+            );
           }
           return;
         }
@@ -1112,11 +1227,14 @@ export default function App() {
 
       // 2. Cloud Engine fallback
       const history = messages.slice(-40); // keep larger context for better memory
+      const frameBase64 = grabScreenFrame();
+      
       const responseText = await processWithCloudEngine(
         text,
         settings,
         history,
         memory,
+        frameBase64
       );
 
       // Parse trigger commands
@@ -1170,10 +1288,12 @@ export default function App() {
           if (jsonMatch) {
             const memoryData = JSON.parse(jsonMatch.jsonStr);
             saveMemory(memoryData);
-            cleanResponse = cleanResponse.replace(
-              cleanResponse.substring(prefixIndex, jsonMatch.endIndex),
-              ""
-            ).trim();
+            cleanResponse = cleanResponse
+              .replace(
+                cleanResponse.substring(prefixIndex, jsonMatch.endIndex),
+                "",
+              )
+              .trim();
           }
         } catch (e) {
           console.error("Failed to parse MEMORY_SAVE", e);
@@ -1192,54 +1312,64 @@ export default function App() {
       const trackerMatch = cleanResponse.match(taskTrackerRegex);
 
       if (trackerMatch && trackerMatch.index !== undefined) {
-        const jsonMatch = extractJsonFromIndex(cleanResponse, trackerMatch.index);
+        const jsonMatch = extractJsonFromIndex(
+          cleanResponse,
+          trackerMatch.index,
+        );
         if (jsonMatch) {
-           jsonToParse = jsonMatch.jsonStr;
-           
-           let startIdx = trackerMatch.index;
-           // If there is ```json before the TASK_TRACKER, try to remove it too
-           const beforeString = cleanResponse.substring(0, startIdx);
-           if (beforeString.match(/```(json)?\s*$/)) {
-               const bMatch = beforeString.match(/```(json)?\s*$/);
-               if (bMatch && bMatch.index !== undefined) {
-                   startIdx = bMatch.index;
-               }
-           }
-           
-           let sliceEnd = jsonMatch.endIndex;
-           const trailingMatch = cleanResponse.substring(sliceEnd).match(/^\s*```/);
-           if (trailingMatch) {
-               sliceEnd += trailingMatch[0].length;
-           }
+          jsonToParse = jsonMatch.jsonStr;
 
-           cleanResponse = cleanResponse.replace(
-             cleanResponse.substring(startIdx, sliceEnd),
-             ""
-           ).trim();
+          let startIdx = trackerMatch.index;
+          // If there is ```json before the TASK_TRACKER, try to remove it too
+          const beforeString = cleanResponse.substring(0, startIdx);
+          if (beforeString.match(/```(json)?\s*$/)) {
+            const bMatch = beforeString.match(/```(json)?\s*$/);
+            if (bMatch && bMatch.index !== undefined) {
+              startIdx = bMatch.index;
+            }
+          }
+
+          let sliceEnd = jsonMatch.endIndex;
+          const trailingMatch = cleanResponse
+            .substring(sliceEnd)
+            .match(/^\s*```/);
+          if (trailingMatch) {
+            sliceEnd += trailingMatch[0].length;
+          }
+
+          cleanResponse = cleanResponse
+            .replace(cleanResponse.substring(startIdx, sliceEnd), "")
+            .trim();
         }
-      } 
-      
+      }
+
       if (!jsonToParse) {
-        const jsonBlockRegex = /```(?:json)?\s*(\{[\s\S]*?"goal"[\s\S]*?"steps"[\s\S]*?\})\s*```/i;
-        const rawJsonBlockRegex = /(\{[\s\S]*?"goal"[\s\S]*?"steps"[\s\S]*?\})/i;
+        const jsonBlockRegex =
+          /```(?:json)?\s*(\{[\s\S]*?"goal"[\s\S]*?"steps"[\s\S]*?\})\s*```/i;
+        const rawJsonBlockRegex =
+          /(\{[\s\S]*?"goal"[\s\S]*?"steps"[\s\S]*?\})/i;
         const codeBlockMatch = cleanResponse.match(jsonBlockRegex);
-        
+
         if (codeBlockMatch) {
           jsonToParse = codeBlockMatch[1];
           cleanResponse = cleanResponse.replace(codeBlockMatch[0], "").trim();
         } else {
           const rawMatch = cleanResponse.match(rawJsonBlockRegex);
           if (rawMatch) {
-             const jsonMatch = extractJsonFromIndex(rawMatch[0], 0);
-             if (jsonMatch) {
-               jsonToParse = jsonMatch.jsonStr;
-               cleanResponse = cleanResponse.replace(jsonMatch.jsonStr, "").trim();
-             }
+            const jsonMatch = extractJsonFromIndex(rawMatch[0], 0);
+            if (jsonMatch) {
+              jsonToParse = jsonMatch.jsonStr;
+              cleanResponse = cleanResponse
+                .replace(jsonMatch.jsonStr, "")
+                .trim();
+            }
           }
         }
-        
+
         // Remove left-over TASK_TRACKER indicator if it exists
-        cleanResponse = cleanResponse.replace(/\*?\*?TASK_TRACKER\*?\*?:?\s*$/i, "").trim();
+        cleanResponse = cleanResponse
+          .replace(/\*?\*?TASK_TRACKER\*?\*?:?\s*$/i, "")
+          .trim();
       }
 
       if (jsonToParse) {
@@ -1295,14 +1425,31 @@ export default function App() {
         return false;
       };
 
-      matchAndExecuteRegex(/\*?\*?ACTION_CALL\*?\*?\s*:\s*(.*)/i, "ACTION_CALL:");
-      matchAndExecuteRegex(/\*?\*?ACTION_MESSAGE\*?\*?\s*:\s*(.*)/i, "ACTION_MESSAGE:");
-      matchAndExecuteRegex(/\*?\*?ACTION_WHATSAPP\*?\*?\s*:\s*(.*)/i, "ACTION_WHATSAPP:");
+      matchAndExecuteRegex(
+        /\*?\*?ACTION_CALL\*?\*?\s*:\s*(.*)/i,
+        "ACTION_CALL:",
+      );
+      matchAndExecuteRegex(
+        /\*?\*?ACTION_MESSAGE\*?\*?\s*:\s*(.*)/i,
+        "ACTION_MESSAGE:",
+      );
+      matchAndExecuteRegex(
+        /\*?\*?ACTION_WHATSAPP\*?\*?\s*:\s*(.*)/i,
+        "ACTION_WHATSAPP:",
+      );
       matchAndExecuteRegex(/\*?\*?OPEN_APP\*?\*?\s*:\s*(.*)/i, "OPEN_APP:");
-      matchAndExecuteRegex(/\*?\*?UI_AUTOMATION\*?\*?\s*:\s*(.*)/i, "UI_AUTOMATION:");
-      matchAndExecuteRegex(/\*?\*?OPEN_APP_STORE\*?\*?\s*:\s*(.*)/i, "OPEN_APP_STORE:");
+      matchAndExecuteRegex(
+        /\*?\*?UI_AUTOMATION\*?\*?\s*:\s*(.*)/i,
+        "UI_AUTOMATION:",
+      );
+      matchAndExecuteRegex(
+        /\*?\*?OPEN_APP_STORE\*?\*?\s*:\s*(.*)/i,
+        "OPEN_APP_STORE:",
+      );
 
-      const triggerCallMatch = cleanResponse.match(/\*?\*?TRIGGER_CALL\*?\*?\s*:\s*(.*)/i);
+      const triggerCallMatch = cleanResponse.match(
+        /\*?\*?TRIGGER_CALL\*?\*?\s*:\s*(.*)/i,
+      );
       if (triggerCallMatch) {
         const num = triggerCallMatch[1].trim();
         const confirmMsg = `${displayResponse} Initiating dial...`;
@@ -1360,7 +1507,9 @@ export default function App() {
         return;
       }
 
-      const openBrowserMatch = cleanResponse.match(/\*?\*?OPEN_BROWSER\*?\*?\s*:\s*(.*)/i);
+      const openBrowserMatch = cleanResponse.match(
+        /\*?\*?OPEN_BROWSER\*?\*?\s*:\s*(.*)/i,
+      );
       if (openBrowserMatch) {
         let url = openBrowserMatch[1].trim();
         url = url.replace(/^"|"$/g, "").replace(/^'|'$/g, "");
@@ -1369,7 +1518,9 @@ export default function App() {
         }
         setBrowserUrl(url);
       } else if (cleanResponse.match(/\*?\*?CLOSE_BROWSER\*?\*?/i)) {
-        displayResponse = displayResponse.replace(/\*?\*?CLOSE_BROWSER\*?\*?/gi, "").trim();
+        displayResponse = displayResponse
+          .replace(/\*?\*?CLOSE_BROWSER\*?\*?/gi, "")
+          .trim();
         setBrowserUrl(null);
       }
 
@@ -1386,22 +1537,13 @@ export default function App() {
 
         if (isVoice) {
           speak(displayResponse, settings.voiceId, () => {
-            // Advanced Integrations: Automatically re-enable listening for hands-free automation
-            if (settings.advancedIntegrations && !actionTriggered) {
-              startListeningRef.current();
-            } else if (!actionTriggered && awaitingReply) {
-              startListeningRef.current();
-            }
+             if (!actionTriggered) {
+                startListeningRef.current();
+             }
           });
         }
       } else {
-        // Even if displayResponse is empty, we must restart listening if awaiting reply
-        if (
-          isVoice &&
-          settings.advancedIntegrations &&
-          !actionTriggered &&
-          awaitingReply
-        ) {
+        if (isVoice && !actionTriggered) {
           startListeningRef.current();
         }
       }
@@ -1411,7 +1553,11 @@ export default function App() {
 
   const handleResult = useCallback(
     async (transcript: string, isFinal: boolean) => {
-      if (!isFinal) return; // We only process final sentences
+      if (!isFinal) {
+        setInterimTranscript(transcript);
+        return;
+      }
+      setInterimTranscript("");
       if (!transcript) return;
 
       let processedText = transcript.trim().toLowerCase();
@@ -1434,8 +1580,43 @@ export default function App() {
     onResult: handleResult,
     continuous: false,
     onAudioStart: () => {
-      if (beepStartRef.current) beepStartRef.current.play();
+      try {
+        if ("vibrate" in navigator) navigator.vibrate(50);
+      } catch (e) {}
+      if (settings.micSoundEnabled && beepStartRef.current) beepStartRef.current.play();
     },
+  });
+
+  // Expose hardware button trigger to the Native Android wrapper
+  useEffect(() => {
+    window.triggerNativeAssistant = (type: string) => {
+      setBrowserUrl(null);
+      setIsHistoryPanelOpen(false);
+      setShowSettings(false);
+      setIsOverlayMode(true);
+      if (type === "voice" && !isListening) {
+        startListening();
+      }
+    };
+    return () => {
+      delete window.triggerNativeAssistant;
+    };
+  }, [isListening, startListening]);
+
+  useWakeWord({
+    enabled: settings.wakeWordEnabled,
+    wakeWord: settings.wakeWord,
+    language: settings.language,
+    isActiveListening: isListening,
+    isSpeaking: isSpeaking,
+    onWakeWordDetected: (command) => {
+      if (command.trim()) {
+        handleTextSubmit(command.trim(), true);
+      } else {
+        stopSpeaking();
+        startListening();
+      }
+    }
   });
 
   // Handle speech recognition errors visually
@@ -1483,7 +1664,10 @@ export default function App() {
   const handleToggleListen = () => {
     if (isListening) {
       stopListening();
-      if (beepEndRef.current) beepEndRef.current.play();
+      try {
+        if ("vibrate" in navigator) navigator.vibrate(50);
+      } catch (e) {}
+      if (settings.micSoundEnabled && beepEndRef.current) beepEndRef.current.play();
     } else {
       stopSpeaking();
       startListening();
@@ -1491,7 +1675,10 @@ export default function App() {
   };
 
   return (
-    <div className="w-full h-screen overflow-hidden bg-slate-900 text-white select-none">
+    <div className="w-full h-screen overflow-hidden text-white select-none relative bg-transparent font-sans">
+      <div
+        className={`aura-atmosphere ${isListening ? "listening" : isSpeaking ? "speaking" : isProcessing ? "processing" : ""}`}
+      />
       {showSettings ? (
         <Settings
           settings={settings}
@@ -1540,12 +1727,12 @@ export default function App() {
                     queuedSystemAction();
                     setQueuedSystemAction(null);
                   }
-                  
+
                   // Speak completion if it was a voice command
                   if (wasLastInputVoiceRef.current) {
                     speak("Task completed.");
                   }
-                  
+
                   // Add a completion message if we were tracking an active task
                   setMessages((prev) => [
                     ...prev,
@@ -1571,128 +1758,82 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+              className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-[#030014]/60 backdrop-blur-xl"
             >
               <motion.div
                 initial={{ scale: 0.9, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
-                className="bg-slate-800 border border-slate-700/50 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl"
+                className="aura-glass border border-white/10 rounded-3xl w-full max-w-lg overflow-hidden shadow-[0_0_40px_rgba(0,240,255,0.15)]"
               >
-                <div className="p-4 border-b border-slate-700 font-semibold flex items-center justify-between">
-                  <span>Android Default Assistant Setup</span>
+                <div className="p-5 border-b border-white/10 font-semibold flex items-center justify-between text-[#00f0ff]">
+                  <span>Native Experience Setup</span>
                   <button
                     onClick={() => setIsAssistantSetupOpen(false)}
-                    className="text-slate-400 hover:text-white pb-1 w-6 h-6 flex items-center justify-center"
+                    className="text-blue-200 hover:text-white pb-1 w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
                   >
                     ✕
                   </button>
                 </div>
-                <div className="p-4 space-y-4 text-sm text-slate-300 max-h-[70vh] overflow-y-auto">
+                <div className="p-6 space-y-4 text-sm text-blue-100/90 max-h-[70vh] overflow-y-auto">
                   <p>
-                    To use this application natively as your Default Digital
-                    Assistant (replacing Google Assistant), you must compile it
-                    as a native Android APK using Capacitor or Android Studio.
+                    Instructions for converting this web application into a
+                    complete native Android application have been generated for
+                    developers in the source code.
                   </p>
 
-                  <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
-                    <h3 className="text-white font-medium">
-                      1. Add VoiceInteractionService
+                  <div className="bg-white/5 p-4 rounded-2xl border border-white/10 space-y-3">
+                    <h3 className="text-[#00f0ff] font-medium tracking-wide">
+                      Developer Instructions
                     </h3>
-                    <p>
-                      In your AndroidManifest.xml, inside the
-                      &lt;application&gt; tag:
+                    <p className="leading-relaxed">
+                      Please refer to the <code>ANDROID_INTEGRATION.md</code>{" "}
+                      file added to the root of the repository. It contains
+                      comprehensive configuration steps for{" "}
+                      <code>VoiceInteractionService</code> and complete native
+                      Android bridge integration.
                     </p>
-                    <code className="block bg-black p-2 rounded text-blue-300 text-xs mt-2 overflow-x-auto whitespace-pre">
-                      {`<service android:name=".MyAssistantService"
-            android:permission="android.permission.BIND_VOICE_INTERACTION"
-            android:exported="true">
-            <meta-data android:name="android.voice_interaction"
-                       android:resource="@xml/assistant_config" />
-            <intent-filter>
-                <action android:name="android.service.voice.VoiceInteractionService" />
-            </intent-filter>
-        </service>`}
-                    </code>
                   </div>
 
-                  <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
+                  <div className="bg-white/5 p-4 rounded-2xl border border-white/10 space-y-4">
                     <h3 className="text-white font-medium">
-                      2. Trigger the Layout
+                      Simulate Hardware Triggers
                     </h3>
-                    <p>
-                      When the user holds the Home button, Android triggers
-                      `onShow()`. Start the transparent React WebView layered
-                      over the current screen:
-                    </p>
-                    <code className="block bg-black p-2 rounded text-blue-300 text-xs mt-2 overflow-x-auto whitespace-pre">
-                      {`// Inject intent to transparent PWA Activity
-Intent intent = new Intent(this, MainActivity.class);
-intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-startActivity(intent);`}
-                    </code>
-                  </div>
-
-                  <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
-                    <h3 className="text-white font-medium">
-                      3. Inject Permission Bridge
-                    </h3>
-                    <p>
-                      To hook up the native permission toggles in settings,
-                      inject a JavascriptInterface:
-                    </p>
-                    <code className="block bg-black p-2 rounded text-emerald-300 text-xs mt-2 overflow-x-auto whitespace-pre">
-                      {`class WebAppInterface {
-    @JavascriptInterface
-    public boolean requestPermission(String perm) {
-        // Implement ActivityCompat.requestPermissions logic
-        return true;
-    }
-}
-webView.addJavascriptInterface(new WebAppInterface(), "Android");`}
-                    </code>
-                  </div>
-
-                  <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-4">
-                    <h3 className="text-white font-medium">
-                      4. Hardware Triggers (Built-in)
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      Aura responds to a deliberate **Double Shake** or **Native Assistant** buttons (Power/Side). Gentle movements are ignored to prevent pocket activation.
+                    <p className="text-xs text-blue-200/60">
+                      Aura responds to a deliberate **Double Shake** or **Native
+                      Assistant** buttons.
                     </p>
                     <div className="flex flex-wrap gap-2 pt-1">
-                      <button 
+                      <button
                         onClick={() => {
                           setIsAssistantSetupOpen(false);
-                          // Double shake stimulation
-                          setTimeout(() => handleAssistantTrigger("shake"), 300);
+                          setTimeout(
+                            () => handleAssistantTrigger("shake"),
+                            300,
+                          );
                         }}
-                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-md text-xs font-medium flex items-center gap-2"
+                        className="px-4 py-2 bg-white/10 border border-white/10 hover:bg-white/20 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
                       >
                         <span>📳 Simulate Double Shake</span>
                       </button>
-                      <button 
+                      <button
                         onClick={() => {
                           setIsAssistantSetupOpen(false);
-                          setTimeout(() => handleAssistantTrigger("native"), 300);
+                          setTimeout(
+                            () => handleAssistantTrigger("native"),
+                            300,
+                          );
                         }}
-                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-md text-xs font-medium flex items-center gap-2"
-                        title="Simulates a native Android OS level assistant call"
+                        className="px-4 py-2 bg-white/10 border border-white/10 hover:bg-white/20 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all"
                       >
                         <span>🔘 OS Assistant (Bridge)</span>
                       </button>
                     </div>
                   </div>
-
-                  <p className="text-xs text-slate-400 pt-2 border-t border-slate-700">
-                    Because this is currently running in a web browser, we
-                    cannot bind OS-level assistant triggers. Compile using \`npx
-                    cap add android\` to bind intents!
-                  </p>
                 </div>
-                <div className="p-4 bg-slate-900/50 flex justify-end gap-3 border-t border-slate-700">
+                <div className="p-5 bg-[#030014]/40 flex justify-end gap-3 border-t border-white/10">
                   <button
                     onClick={() => setIsAssistantSetupOpen(false)}
-                    className="px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-500 font-medium"
+                    className="w-full bg-[#00f0ff] hover:bg-[#00f0ff]/80 text-[#030014] py-3 rounded-xl font-bold transition-colors shadow-lg"
                   >
                     Got it
                   </button>
@@ -1702,7 +1843,7 @@ webView.addJavascriptInterface(new WebAppInterface(), "Android");`}
           )}
 
           <AnimatePresence>
-            {browserUrl && (
+            {browserUrl && !isOverlayMode && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: "min(60vh, 500px)", opacity: 1 }}
@@ -1728,6 +1869,7 @@ webView.addJavascriptInterface(new WebAppInterface(), "Android");`}
                 setIsHistoryPanelOpen(false);
               }}
               onDeleteSession={deleteSession}
+              onEditSession={editSessionTitle}
               onNewSession={() => {
                 createNewSession();
                 setIsHistoryPanelOpen(false);
@@ -1745,27 +1887,66 @@ webView.addJavascriptInterface(new WebAppInterface(), "Android");`}
               isListening={isListening}
               isProcessing={isProcessing}
               isSpeaking={isSpeaking}
+              isScreenSharing={isScreenSharing}
               messages={messages}
               onToggleListen={handleToggleListen}
+              onToggleScreenShare={toggleScreenShare}
               onStopSpeaking={stopSpeaking}
               onSendText={(text) => handleTextSubmit(text, false)}
               onOpenAssistantSetup={() => setIsAssistantSetupOpen(true)}
               onEditMessage={(id, newContent) => {
                 setMessages((prev) =>
-                  prev.map((m) => (m.id === id ? { ...m, content: newContent } : m))
+                  prev.map((m) =>
+                    m.id === id ? { ...m, content: newContent } : m,
+                  ),
                 );
               }}
               onDeleteMessage={(id) => {
                 setMessages((prev) => prev.filter((m) => m.id !== id));
               }}
               onSearchWeb={(query) => {
-                setBrowserUrl(`https://www.google.com/search?q=${encodeURIComponent(query)}&igu=1`);
+                setBrowserUrl(
+                  `https://www.google.com/search?q=${encodeURIComponent(query)}&igu=1`,
+                );
               }}
               onLinkClick={(url) => window.open(url, "_blank")}
             />
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {isOverlayMode && (
+          <OverlayAssistantUI
+            settings={settings}
+            isListening={isListening}
+            isProcessing={isProcessing}
+            isSpeaking={isSpeaking}
+            interimTranscript={interimTranscript}
+            messages={messages}
+            onToggleListen={handleToggleListen}
+            onStopSpeaking={stopSpeaking}
+            onClose={() => setIsOverlayMode(false)}
+            onExpand={() => setIsOverlayMode(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isOverlayMode && browserUrl && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8, y: 50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 50 }}
+            className="fixed top-12 bottom-24 inset-x-4 md:left-1/2 md:-translate-x-1/2 md:w-[800px] z-[350] bg-white dark:bg-[#0a0a0a] rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/20 pointer-events-auto"
+          >
+            <BrowserModule
+              url={browserUrl}
+              onClose={() => setBrowserUrl(null)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

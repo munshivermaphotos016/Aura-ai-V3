@@ -34,6 +34,8 @@ export interface AssistantSettings {
   webSearchEnabled: boolean; // For default Gemini engine
   selectedProviderId: 'default' | string;
   customProviders: ApiProvider[];
+  deepLinkingEnabled?: boolean;
+  appIntentHandling?: Record<string, string>;
   cloudEngine: {
     // Keep for backwards compatibility during migration if needed, but we'll prefer selectedProviderId
     provider: 'default' | 'custom';
@@ -54,8 +56,10 @@ export interface AssistantSettings {
   advancedIntegrations: boolean; // Enables deep-link system commands and auto-execution
   androidMode: boolean; // Tells the system to use Android Intents instead of web fallback
   hardwareTriggerEnabled: boolean; // Enables double-shake trigger
-  powerButtonTriggerEnabled: boolean; // Enables power button trigger
-  permissions: Record<string, boolean>; // System permissions state
+  powerButtonTriggerEnabled: boolean;
+  permissions: Record<string, boolean>;
+  subtitlesEnabled: boolean;
+  micSoundEnabled: boolean;
 }
 
 export const defaultSettings: AssistantSettings = {
@@ -65,6 +69,12 @@ export const defaultSettings: AssistantSettings = {
   webSearchEnabled: true,
   selectedProviderId: 'default',
   customProviders: [],
+  deepLinkingEnabled: true,
+  appIntentHandling: {
+    whatsapp: 'com.whatsapp',
+    youtube: 'com.google.android.youtube',
+    netflix: 'com.netflix.mediaclient',
+  },
   cloudEngine: {
     provider: 'default',
   },
@@ -76,11 +86,13 @@ export const defaultSettings: AssistantSettings = {
     { id: '2', name: 'Dad', number: '555-0101' },
     { id: '3', name: 'Emergency', number: '911' },
   ],
-  contactList: {}, // Kept for safety during migration
+  contactList: {},
   advancedIntegrations: true,
   androidMode: true,
   hardwareTriggerEnabled: true,
   powerButtonTriggerEnabled: true,
+  subtitlesEnabled: true,
+  micSoundEnabled: false,
   permissions: {
     contacts: false,
     call: false,

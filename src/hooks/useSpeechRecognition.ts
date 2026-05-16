@@ -104,15 +104,15 @@ export function useSpeechRecognition({
       };
 
       recognitionRef.current.onerror = (event: any) => {
-        if (event.error !== 'no-speech') {
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
           if (event.error !== 'not-allowed') {
             console.error("Speech recognition error", event.error);
           }
           setError(event.error);
           errorRef.current = event.error;
         } else {
-          // If no-speech, it shouldn't be treated as a fatal error visually, but we DO want to track it to prevent horrific restart loops
-          errorRef.current = 'no-speech';
+          // If no-speech or aborted, it shouldn't be treated as a fatal error visually, but we DO want to track it to prevent horrific restart loops
+          errorRef.current = event.error;
         }
         setIsListening(false);
       };

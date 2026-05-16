@@ -189,7 +189,7 @@ function extractTask(text: string): { steps: TaskStep[], response: string } | nu
   }
 
   // Pattern: Search contacts for [name] and [action]
-  const contactActionMatch = text.match(/search\s+(?:for\s+)?(.+?)\s+and\s+(call|message|text|mail)\b/i);
+  const contactActionMatch = text.match(/search\s+(?:for\s+)?(.+?)\s+and\s+(call|message|text|mail|whatsapp)\b/i);
   if (contactActionMatch) {
     const name = contactActionMatch[1].trim();
     const action = contactActionMatch[2].trim();

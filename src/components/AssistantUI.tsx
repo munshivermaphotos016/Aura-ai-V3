@@ -18,6 +18,8 @@ import {
   Edit2,
   Trash2,
   Check,
+  MonitorPlay,
+  MonitorOff,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { AssistantSettings, Message } from "../types";
@@ -25,6 +27,7 @@ import { WaveformAnimation } from "./WaveformAnimation";
 import { useLongPress } from "./useLongPress";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { isNativeAndroid, submitNativeIntent } from "../lib/nativeBridge";
 
 interface AssistantUIProps {
   settings: AssistantSettings;
@@ -33,8 +36,10 @@ interface AssistantUIProps {
   isListening: boolean;
   isProcessing: boolean;
   isSpeaking: boolean;
+  isScreenSharing?: boolean;
   messages: Message[];
   onToggleListen: () => void;
+  onToggleScreenShare?: () => void;
   onStopSpeaking: () => void;
   onSendText?: (text: string) => void;
   onOpenAssistantSetup?: () => void;
@@ -96,10 +101,10 @@ function MessageBubble({
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className={`max-w-[90%] p-4 rounded-3xl text-[17px] shadow-lg flex flex-col gap-3 ${
+        className={`max-w-[90%] p-5 rounded-3xl text-[17px] flex flex-col gap-3 ${
           msg.role === "user"
-            ? "bg-blue-600 self-end rounded-tr-none text-white shadow-blue-900/20"
-            : "bg-slate-800 self-start rounded-tl-none border border-slate-700 text-slate-50 shadow-black/40"
+            ? "bg-gradient-to-br from-[#00f0ff]/20 to-[#8a2be2]/20 self-end rounded-tr-none text-white shadow-[0_0_20px_rgba(0,240,255,0.15)] border border-white/10 aura-glass"
+            : "bg-white/5 self-start rounded-tl-none border border-white/10 text-white shadow-[0_0_30px_rgba(138,43,226,0.1)] aura-glass"
         }`}
       >
         <textarea
@@ -139,17 +144,18 @@ function MessageBubble({
       onContextMenu={handleContextMenu}
       initial={{ opacity: 0, scale: 0.95, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      className={`group max-w-[90%] p-4 rounded-3xl text-[17px] shadow-lg flex flex-col gap-2 relative ${
+      style={{ zIndex: showOptions ? 9999 : 1 }}
+      className={`group max-w-[90%] p-5 rounded-3xl text-[16px] leading-[1.6] flex flex-col gap-2 relative transition-all shadow-sm ${
         msg.role === "user"
-          ? "bg-blue-600 self-end rounded-tr-none text-white shadow-blue-900/20"
-          : "bg-slate-800 self-start rounded-tl-none border border-slate-700 text-slate-50 shadow-black/40"
+          ? "bg-[#2d2f33]/80 backdrop-blur-2xl self-end rounded-tr-sm text-white/95 border border-white/10 shadow-[0_4px_24px_rgba(0,0,0,0.2)]"
+          : "bg-[#1f2023]/80 backdrop-blur-2xl self-start rounded-tl-sm border border-white/5 text-white/90 shadow-[0_4px_24px_rgba(0,0,0,0.15)]"
       }`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 overflow-hidden">
           {msg.role === "assistant" && (
-            <div className="flex items-center gap-2 mb-2 text-blue-400 text-[11px] font-bold uppercase tracking-[0.2em] opacity-80 select-none">
-              <Sparkles size={12} aria-hidden="true" />
+            <div className="flex items-center gap-1.5 mb-2.5 text-[#a8c7fa] text-[12px] font-medium tracking-wide opacity-90 select-none">
+              <Sparkles size={14} aria-hidden="true" fill="#a8c7fa" className="text-[#a8c7fa]" />
               <span>Aura</span>
             </div>
           )}
@@ -165,7 +171,45 @@ function MessageBubble({
                       onClick={(e) => {
                         e.preventDefault();
                         if (props.href) {
-                          onLinkClick?.(props.href);
+                          if (props.href.startsWith("aura://")) {
+                            try {
+                              const urlObj = new URL(props.href);
+                              const host = urlObj.hostname;
+                              const q = urlObj.searchParams.get("q") || urlObj.searchParams.get("query") || urlObj.pathname.replace(/^\/+/, '');
+                              
+                              if (isNativeAndroid()) {
+                                if (host === "youtube") {
+                                  submitNativeIntent(`intent://search/${q}#Intent;package=com.google.android.youtube;scheme=vnd.youtube;end;`);
+                                } else if (host === "maps") {
+                                  submitNativeIntent(`geo:0,0?q=${encodeURIComponent(q)}`);
+                                } else if (host === "playstore" || host === "store") {
+                                  submitNativeIntent(`market://search?q=${encodeURIComponent(q)}`);
+                                } else if (host === "settings") {
+                                  submitNativeIntent(`intent://#Intent;action=android.settings.SETTINGS;end;`);
+                                } else {
+                                  submitNativeIntent(props.href);
+                                }
+                              } else {
+                                // Web fallback
+                                if (host === "youtube") {
+                                  window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`, "_blank");
+                                } else if (host === "maps") {
+                                  window.open(`https://www.google.com/maps/search/${encodeURIComponent(q)}`, "_blank");
+                                } else if (host === "playstore" || host === "store") {
+                                  window.open(`https://play.google.com/store/search?q=${encodeURIComponent(q)}&c=apps`, "_blank");
+                                } else if (host === "search" && onSearchWeb) {
+                                  onSearchWeb(q);
+                                } else {
+                                  onLinkClick?.(props.href);
+                                }
+                              }
+                            } catch (err) {
+                              console.error("Invalid aura:// intent format", err);
+                              onLinkClick?.(props.href);
+                            }
+                          } else {
+                            onLinkClick?.(props.href);
+                          }
                         }
                       }}
                       className="text-blue-400 hover:text-blue-300 underline"
@@ -253,8 +297,10 @@ export function AssistantUI({
   isListening,
   isProcessing,
   isSpeaking,
+  isScreenSharing,
   messages,
   onToggleListen,
+  onToggleScreenShare,
   onStopSpeaking,
   onSendText,
   onOpenAssistantSetup,
@@ -277,28 +323,28 @@ export function AssistantUI({
 
   return (
     <div
-      className="flex flex-col h-full w-full bg-[#0F172A] text-slate-50 font-sans relative"
+      className="flex flex-col h-full w-full bg-transparent text-slate-50 font-sans relative"
       role="main"
       aria-label="Aura Assistant"
     >
       {/* Header */}
-      <header className="flex justify-between items-center p-4 border-b border-slate-700/50 bg-[#0F172A]/80 backdrop-blur-md sticky top-0 z-20">
+      <header className="flex justify-between items-center px-6 py-4 bg-white/5 backdrop-blur-2xl sticky top-0 z-20 border-b border-white/5 mx-2 mt-2 rounded-[2rem] shadow-sm">
         <div className="flex items-center gap-3">
           <div
-            className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20"
+            className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#3b82f6] to-[#8b5cf6] flex items-center justify-center shadow-[0_4px_12px_rgba(59,130,246,0.3)]"
             aria-hidden="true"
           >
-            <div className="w-5 h-5 rounded-full bg-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-pulse" />
+            <Sparkles size={18} className="text-white" fill="white" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight leading-tight">Aura</h1>
-            <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest opacity-80">AI Assistant</p>
+            <h1 className="text-lg font-medium tracking-wide leading-tight text-white/95">Aura</h1>
+            <p className="text-[11px] text-white/50 font-medium uppercase tracking-[0.05em]">AI Assistant</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             onClick={onOpenStats}
-            className="p-2.5 rounded-xl bg-slate-800/50 text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-all border border-slate-700/50"
+            className="p-2.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
             title="Usage Statistics"
             aria-label="Open Usage Statistics"
           >
@@ -306,7 +352,7 @@ export function AssistantUI({
           </button>
           <button
             onClick={onOpenHistory}
-            className="p-2.5 rounded-xl bg-slate-800/50 text-slate-400 hover:text-white hover:bg-slate-800 transition-all border border-slate-700/50"
+            className="p-2.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
             title="Chat History"
             aria-label="Open Chat History"
           >
@@ -314,14 +360,14 @@ export function AssistantUI({
           </button>
           <button
             onClick={onOpenAssistantSetup}
-            className="p-2.5 rounded-xl bg-slate-800/50 text-slate-400 hover:text-blue-400 transition-all border border-slate-700/50"
+            className="p-2.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
             title="Native Mode"
           >
             <Smartphone size={20} />
           </button>
           <button
             onClick={onOpenSettings}
-            className="p-2.5 rounded-xl bg-slate-800/50 text-slate-400 hover:text-white transition-all border border-slate-700/50"
+            className="p-2.5 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
             aria-label="Settings"
           >
             <SettingsIcon size={20} />
@@ -344,16 +390,16 @@ export function AssistantUI({
               transition={{ duration: 0.5 }}
               className="space-y-4"
             >
-              <div className="w-20 h-20 bg-blue-600/20 rounded-3xl flex items-center justify-center mx-auto border border-blue-500/30">
-                <Sparkles size={40} className="text-blue-400 animate-pulse" />
+              <div className="w-24 h-24 bg-gradient-to-tr from-[#3b82f6] to-[#8b5cf6] rounded-[2rem] flex items-center justify-center mx-auto shadow-[0_8px_32px_rgba(59,130,246,0.4)]">
+                <Sparkles size={48} className="text-white drop-shadow-md" fill="white" />
               </div>
-              <h2 className="text-3xl font-bold text-white tracking-tight">How can I help?</h2>
-              <p className="text-slate-400 max-w-xs mx-auto text-lg leading-relaxed">
-                I'm your assistant Aura. I can make calls, send messages, or answer your questions.
+              <h2 className="text-4xl font-semibold text-white/95 tracking-tight mt-6">How can I help?</h2>
+              <p className="text-white/50 max-w-sm mx-auto text-lg leading-relaxed font-normal">
+                I'm Aura. I can draft emails, set reminders, or answer your questions.
               </p>
             </motion.div>
 
-            <div className="grid grid-cols-2 gap-3 w-full max-w-md">
+            <div className="grid grid-cols-2 gap-3 w-full max-w-md pt-4">
               {SUGGESTED_ACTIONS.map((action, idx) => (
                 <motion.button
                   key={idx}
@@ -361,12 +407,12 @@ export function AssistantUI({
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.1 }}
                   onClick={() => onSendText?.(action.text)}
-                  className="p-4 bg-slate-800/30 border border-slate-700/50 rounded-2xl flex flex-col items-center text-center hover:bg-slate-800/80 transition-all group active:scale-95"
+                  className="px-5 py-4 bg-white/5 border border-white/5 backdrop-blur-xl rounded-[1.5rem] flex flex-col items-start hover:bg-white/10 transition-all group active:scale-95"
                 >
-                  <div className="mb-2 p-2 rounded-lg bg-slate-900 group-hover:scale-110 transition-transform">
+                  <div className="mb-3 p-2.5 rounded-[1rem] bg-white/10 group-hover:scale-110 transition-transform">
                     {action.icon}
                   </div>
-                  <span className="text-sm font-medium text-slate-200">{action.label}</span>
+                  <span className="text-[15px] font-medium text-white/90 tracking-wide text-left">{action.label}</span>
                 </motion.button>
               ))}
             </div>
@@ -387,12 +433,12 @@ export function AssistantUI({
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="bg-slate-800 self-start rounded-3xl rounded-tl-none p-5 border border-slate-700 flex items-center gap-3"
+                className="bg-white/5 aura-glass self-start rounded-3xl rounded-tl-none p-5 border border-white/10 flex items-center gap-3 shadow-[0_0_20px_rgba(138,43,226,0.15)]"
               >
-                <div className="flex gap-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" />
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.2s]" />
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:0.4s]" />
+                <div className="flex gap-2">
+                  <div className="w-2 h-2 rounded-full bg-[#00f0ff] animate-pulse drop-shadow-[0_0_8px_rgba(0,240,255,1)]" />
+                  <div className="w-2 h-2 rounded-full bg-[#8a2be2] animate-pulse [animation-delay:0.2s] drop-shadow-[0_0_8px_rgba(138,43,226,1)]" />
+                  <div className="w-2 h-2 rounded-full bg-[#ff00ff] animate-pulse [animation-delay:0.4s] drop-shadow-[0_0_8px_rgba(255,0,255,1)]" />
                 </div>
               </motion.div>
             )}
@@ -401,27 +447,46 @@ export function AssistantUI({
       </div>
 
       {/* Footer / Controls */}
-      <div className="absolute bottom-0 left-0 right-0 p-6 pt-10 bg-gradient-to-t from-[#0F172A] via-[#0F172A] to-transparent z-10">
+      <div className="absolute bottom-0 left-0 right-0 p-6 pt-10 bg-gradient-to-t from-[var(--color-bg)] via-[var(--color-bg)]/95 to-transparent z-10">
         <div className="mb-6 flex flex-col items-center justify-center">
           <WaveformAnimation 
             active={isListening || isSpeaking} 
-            color={isListening ? "#ef4444" : isSpeaking ? "#10b981" : "#3b82f6"} 
           />
-          <div className="mt-2">
-            {isListening ? (
-              <motion.p className="text-red-400 text-sm font-semibold tracking-wide flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
-                Listening...
-              </motion.p>
-            ) : isSpeaking ? (
-              <p className="text-emerald-400 text-sm font-semibold tracking-wide">
-                Aura is speaking...
-              </p>
-            ) : (
-              <p className="text-slate-500 text-xs font-medium tracking-wide">
-                Say "{settings.wakeWord}" or tap the mic
-              </p>
-            )}
+          <div className="mt-4 h-6">
+            <AnimatePresence mode="wait">
+              {isListening ? (
+                <motion.p 
+                  key="listening"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className="text-[#00f0ff] text-sm font-semibold tracking-wide flex items-center gap-2 drop-shadow-[0_0_8px_rgba(0,240,255,0.8)]"
+                >
+                  <span className="w-2 h-2 rounded-full bg-[#00f0ff] animate-ping" />
+                  Listening...
+                </motion.p>
+              ) : isSpeaking ? (
+                <motion.p 
+                  key="speaking"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className="text-[#8a2be2] text-sm font-semibold tracking-wide drop-shadow-[0_0_8px_rgba(138,43,226,0.8)]"
+                >
+                  Aura is speaking...
+                </motion.p>
+              ) : (
+                <motion.p 
+                  key="idle"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className="text-white/60 text-xs font-medium tracking-wider"
+                >
+                  Tap the mic or say "{settings.wakeWord}"
+                </motion.p>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
@@ -440,37 +505,48 @@ export function AssistantUI({
             <input
               name="message"
               type="text"
-              placeholder="Ask anything..."
+              placeholder="Message Aura..."
               autoComplete="off"
               disabled={isListening || isProcessing}
-              className="w-full bg-slate-800/80 backdrop-blur-sm border border-slate-700/50 rounded-2xl pl-6 pr-14 py-4.5 text-base focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 transition-all shadow-xl placeholder:text-slate-500"
+              className="w-full bg-white/5 backdrop-blur-2xl border border-white/10 rounded-full pl-6 pr-14 py-4 text-[15px] focus:outline-none focus:bg-white/10 focus:border-white/20 disabled:opacity-50 transition-all shadow-xl placeholder:text-white/40 text-white"
             />
             <button
               type="submit"
               disabled={isListening || isProcessing}
-              className="absolute right-2 w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 flex items-center justify-center transition-all disabled:opacity-0 shadow-lg shadow-blue-900/40 translate-x-0 active:scale-90"
+              className="absolute right-2 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all disabled:opacity-0 shadow-sm translate-x-0 active:scale-95 border border-white/5"
             >
-              <Send size={18} className="text-white" />
+              <Send size={18} className="text-white/80" />
             </button>
           </form>
 
           <button
+            onClick={onToggleScreenShare}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all outline-none shrink-0 border border-white/10 backdrop-blur-xl ${
+              isScreenSharing
+                ? "bg-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.3)] text-emerald-400"
+                : "bg-white/5 hover:bg-white/10 text-white/70 hover:text-white"
+            }`}
+          >
+            {isScreenSharing ? <MonitorPlay size={20} /> : <MonitorOff size={20} />}
+          </button>
+
+          <button
             onClick={isSpeaking ? onStopSpeaking : onToggleListen}
-            className={`w-16 h-16 rounded-3xl flex items-center justify-center shadow-2xl transition-all active:scale-95 outline-none shrink-0 group
+            className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-90 outline-none shrink-0 group border border-white/10 backdrop-blur-xl
                ${
                  isListening
-                   ? "bg-red-500 shadow-red-500/30 rotate-12 scale-110"
+                   ? "bg-white/20 shadow-[0_0_20px_rgba(0,240,255,0.4)] scale-110"
                    : isSpeaking
-                     ? "bg-emerald-600 shadow-emerald-500/30"
-                     : "bg-blue-600 shadow-blue-500/30 hover:shadow-blue-500/50"
+                     ? "bg-white/20 shadow-[0_0_20px_rgba(138,43,226,0.4)]"
+                     : "bg-white/10 hover:bg-white/20"
                }`}
           >
             {isListening ? (
-              <MicOff size={32} className="text-white" />
+              <MicOff size={24} className="text-[#00f0ff]" />
             ) : isSpeaking ? (
-              <Volume2 size={32} className="text-white" />
+               <Volume2 size={24} className="text-[#8a2be2]" />
             ) : (
-              <Mic size={32} className="text-white group-hover:scale-110 transition-transform" />
+              <Mic size={24} className="text-white/90 group-hover:text-white" />
             )}
           </button>
         </div>
